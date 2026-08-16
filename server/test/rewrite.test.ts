@@ -84,6 +84,80 @@ test('после всех попыток потеря остаётся — от�
   )
 })
 
+// --- Rewrite обязан отличаться от Snippet (issue #8) ---
+
+test('дословное совпадение со Snippet — неудачная попытка, а не приёмка', async () => {
+  // Модель упорно возвращает исходный текст слово в слово.
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const model = scriptedModel([echo, echo, echo])
+  const rewrite = await generateRewrite(article, 'joyful', model.call)
+
+  assert.equal(rewrite.attempts, 3) // совпадение ушло в тот же цикл ретраев
+  assert.equal(rewrite.unchanged, true) // после всех попыток текст не изменился
+  assert.deepEqual(rewrite.missing, []) // Anchor все на месте — потеряно другое
+})
+
+test('различие лишь в пробелах, регистре и пунктуации за переписывание не считается', async () => {
+  // «Тот же текст», отличается только оформлением — это по-прежнему Snippet.
+  const cosmetic: ModelOutput = {
+    title: 'СОБЯНИН   выделил 1200 млрд рублей!!!',
+    body: 'мэр москвы сообщил о росте на 15% в 2026 году',
+  }
+  const model = scriptedModel([cosmetic, cosmetic, cosmetic])
+  const rewrite = await generateRewrite(article, 'joyful', model.call)
+
+  assert.equal(rewrite.unchanged, true)
+  assert.equal(rewrite.attempts, 3)
+})
+
+test('переписанный текст, отличающийся от Snippet, проходит с первой попытки', async () => {
+  const rewritten: ModelOutput = {
+    title: 'Ура! Собянин выделил целых 1200 млрд',
+    body: 'Какая радость: Мэр Москвы объявил рост на 15% в 2026 году — прекрасно!',
+  }
+  const model = scriptedModel([rewritten])
+  const rewrite = await generateRewrite(article, 'joyful', model.call)
+
+  assert.equal(rewrite.attempts, 1)
+  assert.equal(rewrite.unchanged, false)
+  assert.deepEqual(rewrite.missing, [])
+})
+
+test('совпадение со Snippet исправляется ретраем', async () => {
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const changed: ModelOutput = {
+    title: 'Собянин выделил 1200 млрд',
+    body: 'Как грустно: Мэр Москвы сообщил о росте всего на 15% в 2026 году.',
+  }
+  const model = scriptedModel([echo, changed])
+  const rewrite = await generateRewrite(article, 'sad', model.call)
+
+  assert.equal(rewrite.attempts, 2)
+  assert.equal(rewrite.unchanged, false)
+})
+
+test('для Mood neutral совпадение со Snippet допустимо и ретрая не вызывает', async () => {
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const model = scriptedModel([echo])
+  const rewrite = await generateRewrite(article, 'neutral', model.call)
+
+  assert.equal(rewrite.attempts, 1) // нейтральный пересказ вправе совпасть
+  assert.equal(rewrite.unchanged, false)
+})
+
+test('ретрай при совпадении сообщает модели, что она ничего не изменила', () => {
+  const messages = buildMessages({
+    mood: 'joyful',
+    title: article.title,
+    announce: article.announce,
+    anchors: [],
+    missing: [],
+    unchanged: true,
+  })
+  const user = messages.find((m) => m.role === 'user')!.content
+  assert.match(user, /не изменил|без изменений/)
+})
+
 test('невалидный JSON — ещё одна неудачная попытка, а не сбой', async () => {
   const good: ModelOutput = {
     title: 'Собянин выделил 1200 млрд',

@@ -30,6 +30,7 @@ export function openDb(path: string): DatabaseSync {
       missing TEXT NOT NULL,
       anchor_count INTEGER NOT NULL,
       attempts INTEGER NOT NULL,
+      unchanged INTEGER NOT NULL,
       PRIMARY KEY (link, mood)
     )
   `)
@@ -90,6 +91,7 @@ type RewriteRow = {
   missing: string
   anchor_count: number
   attempts: number
+  unchanged: number
 }
 
 // Чтение Rewrite из кэша. Данные наши же, записанные insertRewrite ниже, поэтому
@@ -101,7 +103,7 @@ export function getRewrite(
 ): Rewrite | undefined {
   const row = db
     .prepare(
-      `SELECT mood, title, body, anchors, missing, anchor_count, attempts
+      `SELECT mood, title, body, anchors, missing, anchor_count, attempts, unchanged
        FROM rewrites WHERE link = ? AND mood = ?`,
     )
     .get(link, mood) as RewriteRow | undefined
@@ -115,6 +117,7 @@ export function getRewrite(
     anchorCount: row.anchor_count,
     attempts: row.attempts,
     stub: false, // в кэш попадает только настоящий Rewrite (см. resolveRewrite)
+    unchanged: row.unchanged !== 0,
   }
 }
 
@@ -128,8 +131,8 @@ export function insertRewrite(
 ): void {
   db.prepare(
     `INSERT OR IGNORE INTO rewrites
-       (link, mood, title, body, anchors, missing, anchor_count, attempts)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (link, mood, title, body, anchors, missing, anchor_count, attempts, unchanged)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     link,
     mood,
@@ -139,5 +142,6 @@ export function insertRewrite(
     JSON.stringify(rewrite.missing),
     rewrite.anchorCount,
     rewrite.attempts,
+    rewrite.unchanged ? 1 : 0,
   )
 }

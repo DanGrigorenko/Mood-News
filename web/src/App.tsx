@@ -212,6 +212,16 @@ function Piece(props: {
                       <Retry onClick={retry} />
                     </>
                   )}
+                  {rewrite.unchanged && (
+                    <>
+                      <p className="editorial editorial-alert">
+                        переписать не удалось: после всех попыток модель вернула
+                        текст источника без изменений. Не прячем промах —
+                        показываем как есть.
+                      </p>
+                      <Retry onClick={retry} />
+                    </>
+                  )}
                   <FactCheck rewrite={rewrite} />
                 </div>
               )}
@@ -251,9 +261,11 @@ function Lead(props: {
     article.link,
     props.selected,
   )
-  // Заглушка — это не исполнение: текст пришёл как у источника, поэтому ремарку
-  // регистра над ним ставить нельзя, иначе плашка соврёт читателю.
-  const performed = rewrite !== null && !loading && !rewrite.stub
+  // Заглушка и неизменённый Rewrite — это не исполнение: текст пришёл как у
+  // источника, поэтому ремарку регистра над ним ставить нельзя, иначе плашка
+  // соврёт читателю (issue #8).
+  const performed =
+    rewrite !== null && !loading && !rewrite.stub && !rewrite.unchanged
 
   return (
     <>
@@ -296,6 +308,15 @@ function Lead(props: {
         <div>
           <p className="notice">
             Модель недоступна — главная показана как у источника.
+          </p>
+          <Retry onClick={retry} />
+        </div>
+      )}
+      {rewrite !== null && !rewrite.stub && rewrite.unchanged && (
+        <div>
+          <p className="notice">
+            Переписать главную не удалось — модель вернула текст источника без
+            изменений. Показываем как есть.
           </p>
           <Retry onClick={retry} />
         </div>

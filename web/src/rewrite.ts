@@ -20,6 +20,9 @@ export const rewriteSchema = z.object({
   missing: z.array(anchorSchema),
   attempts: z.number(),
   stub: z.boolean(),
+  // После всех попыток Rewrite дословно совпал со Snippet — переписывание не
+  // сработало. Показываем честно, как и Missing Anchor (issue #8).
+  unchanged: z.boolean(),
 })
 export type Rewrite = z.infer<typeof rewriteSchema>
 

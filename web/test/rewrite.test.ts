@@ -16,7 +16,22 @@ const base: Rewrite = {
   missing: [],
   attempts: 1,
   stub: false,
+  unchanged: false,
 }
+
+test('rewriteResponseSchema принимает пометку unchanged', () => {
+  const parsed = rewriteResponseSchema.parse({
+    article: {
+      link: 'https://example.com/a',
+      source: 'S',
+      title: 'T',
+      announce: 'A',
+      publishedAt: '',
+    },
+    rewrite: { ...base, unchanged: true },
+  })
+  assert.equal(parsed.rewrite.unchanged, true)
+})
 
 test('factCheckSummary показывает сохранённые факты как kept/total', () => {
   assert.equal(factCheckSummary(base), 'факты сохранены: 12/12')

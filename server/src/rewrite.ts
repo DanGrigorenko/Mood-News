@@ -4,9 +4,9 @@ import { extractAnchors, factCheck, anchorSchema, type Anchor } from './anchor.t
 import { moodSchema, type Mood } from './mood.ts'
 import {
   buildMessages,
-  buildReviewMessages,
+  buildMeaningCheckMessages,
   type ModelCall,
-  type ReviewCall,
+  type MeaningCheckCall,
 } from './llm.ts'
 import type { Article } from './rss.ts'
 import { getRewrite, insertRewrite } from './db.ts'
@@ -24,19 +24,21 @@ export const rewriteSchema = z.object({
   attempts: z.number().int().nonnegative(),
   stub: z.boolean(),
   // Rewrite после всех попыток дословно совпал со Snippet — переписывание не
-  // сработало. Как и Missing Anchor, промах не прячется, а показывается
-  // читателю (docs/adr/0003, issue #8). Для Mood neutral всегда false: сухой
-  // пересказ вправе совпасть с источником.
+  // сработало. Все пять Mood обязаны отличаться от Snippet: после docs/adr/0006
+  // Snippet — полный текст статьи, и нейтральный Rewrite обязан быть его
+  // сжатием (issue #12). Провалившийся Rewrite в кэш не пишется (docs/adr/0008),
+  // но поле остаётся в ответе API для eval и отладки — с экрана оно ушло.
   unchanged: z.boolean(),
-  // Второй проход — смысловая сверка Rewrite с источником (docs/adr/0005,
-  // issue #10): passed — противоречий нет; failed — найдено неустранённое
-  // противоречие (см. contradiction); skipped — сверка не отработала (нет ключа,
-  // сбой, не-JSON от судьи). skipped честно означает «не проверено», а не
-  // «пройдено».
-  review: z.enum(['passed', 'failed', 'skipped']),
-  // Название найденного противоречия — непустое только при review === 'failed'.
-  // Показывается читателю рядом с Fact Check (docs/adr/0003).
-  contradiction: z.string(),
+  // Meaning Check — смысловая сверка Rewrite с источником (docs/adr/0005,
+  // docs/adr/0007): passed — исход события сохранён; failed — найдено искажение
+  // (см. distortion); skipped — сверка не отработала (нет ключа, сбой, не-JSON
+  // от судьи). skipped честно означает «не проверено», а не «пройдено». Как и
+  // unchanged, поле живёт в ответе API для eval, но не показывается читателю
+  // (docs/adr/0008).
+  meaningCheck: z.enum(['passed', 'failed', 'skipped']),
+  // Название найденного искажения (Distortion) — непустое только при
+  // meaningCheck === 'failed'.
+  distortion: z.string(),
 })
 export type Rewrite = z.infer<typeof rewriteSchema>
 
@@ -73,30 +75,31 @@ function matchesSnippet(title: string, body: string, article: Article): boolean 
   )
 }
 
-// Цикл: сгенерировать → Fact Check → смысловая сверка. Если есть Missing Anchor
+// Цикл: сгенерировать → Fact Check → Meaning Check. Если есть Missing Anchor
 // или текст дословно совпал со Snippet — повторить, назвав причину. Только после
-// того как Anchor-сверка пройдена, запускается второй проход (docs/adr/0005):
-// модель сверяет Rewrite с источником; найденное противоречие — тоже неудачная
-// попытка, оно называется в ретрае. Всё до MAX_ATTEMPTS попыток. Если после всех
-// попыток потери, совпадение или противоречие остались — Rewrite всё равно
-// возвращается с честной пометкой (не 500, не откат на Snippet, docs/adr/0003).
-// Невалидный JSON (callModel вернул null) — ещё одна неудачная попытка. Сбой
-// второго прохода не роняет запрос: Anchor-валидный Rewrite отдаётся с пометкой
-// review:'skipped'. Mood neutral от отличия не требуется: сухой пересказ вправе
-// совпасть с источником.
+// того как Anchor-сверка пройдена, запускается Meaning Check (docs/adr/0005):
+// модель сверяет исход события (Outcome) Rewrite с источником; найденное
+// искажение (Distortion) — тоже неудачная попытка, оно называется в ретрае. Всё
+// до MAX_ATTEMPTS попыток. Если после всех попыток потери, совпадение или
+// искажение остались — возвращается лучшая (последняя валидная) попытка, а не
+// 500 и не откат на Snippet (docs/adr/0008): читатель не упирается в ошибку.
+// Провалившийся Rewrite не кэшируется — это забота resolveRewrite. Невалидный
+// JSON (callModel вернул null) — ещё одна неудачная попытка. Сбой Meaning Check
+// не роняет запрос: Anchor-валидный Rewrite отдаётся с пометкой
+// meaningCheck:'skipped'. Все пять Mood, включая neutral, обязаны отличаться от
+// Snippet (issue #12): после docs/adr/0006 Snippet — полный текст статьи.
 export async function generateRewrite(
   article: Article,
   mood: Mood,
   callModel: ModelCall,
-  reviewModel: ReviewCall,
+  meaningCheckModel: MeaningCheckCall,
 ): Promise<Rewrite> {
   const anchors = anchorsOf(article)
-  const mustDiffer = mood !== 'neutral'
   let last: { title: string; body: string } | null = null
   let missing: Anchor[] = []
   let unchanged = false
-  let contradiction = ''
-  let review: Rewrite['review'] = 'skipped'
+  let distortion = ''
+  let meaningCheck: Rewrite['meaningCheck'] = 'skipped'
   let attempts = 0
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -107,41 +110,41 @@ export async function generateRewrite(
       anchors,
       missing,
       unchanged,
-      contradiction,
+      distortion,
     })
     const out = await callModel(messages)
     attempts++
     if (out === null) continue // невалидный JSON — ещё одна неудачная попытка
     last = out
     missing = missingIn(out.title, out.body, anchors)
-    unchanged = mustDiffer && matchesSnippet(out.title, out.body, article)
+    unchanged = matchesSnippet(out.title, out.body, article)
     if (missing.length > 0 || unchanged) continue // Anchor-сверка не пройдена — ретрай
 
-    // Anchor-сверка пройдена → второй проход: смысловая сверка (docs/adr/0005).
-    // Сбой запроса и не-JSON от судьи трактуются одинаково: сверка ответа не
-    // дала. Не роняем запрос — отдаём Anchor-валидный Rewrite, честно помечая
-    // сверку непройденной (skipped), а не выдавая её за пройденную.
+    // Anchor-сверка пройдена → Meaning Check (docs/adr/0005). Сбой запроса и
+    // не-JSON от судьи трактуются одинаково: сверка ответа не дала. Не роняем
+    // запрос — отдаём Anchor-валидный Rewrite, честно помечая сверку непройденной
+    // (skipped), а не выдавая её за пройденную.
     let verdict
     try {
-      verdict = await reviewModel(
-        buildReviewMessages({ title: article.title, announce: article.announce, rewrite: out }),
+      verdict = await meaningCheckModel(
+        buildMeaningCheckMessages({ title: article.title, announce: article.announce, rewrite: out }),
       )
     } catch {
       verdict = null
     }
     if (verdict === null) {
-      review = 'skipped'
-      contradiction = ''
+      meaningCheck = 'skipped'
+      distortion = ''
       break
     }
     if (verdict.consistent) {
-      review = 'passed'
-      contradiction = ''
+      meaningCheck = 'passed'
+      distortion = ''
       break
     }
-    // Противоречие — ещё одна неудачная попытка, названная в следующем ретрае.
-    review = 'failed'
-    contradiction = verdict.contradiction.trim() || 'смысл искажён относительно источника'
+    // Искажение — ещё одна неудачная попытка, названная в следующем ретрае.
+    meaningCheck = 'failed'
+    distortion = verdict.distortion.trim() || 'исход события искажён относительно источника'
   }
 
   if (last === null) {
@@ -158,8 +161,8 @@ export async function generateRewrite(
     attempts,
     stub: false, // модель вызывалась — это настоящий Rewrite
     unchanged,
-    review,
-    contradiction,
+    meaningCheck,
+    distortion,
   }
 }
 
@@ -181,24 +184,40 @@ export function stubRewrite(article: Article, mood: Mood): Rewrite {
     // Заглушка честно совпадает со Snippet, но об этом говорит её собственная
     // пометка stub:true — вторую («unchanged») на неё не вешаем (issue #8).
     unchanged: false,
-    // Модель не вызывалась — второй проход тоже: сверка не проведена, а не
+    // Модель не вызывалась — Meaning Check тоже: сверка не проведена, а не
     // пройдена (docs/adr/0005).
-    review: 'skipped',
-    contradiction: '',
+    meaningCheck: 'skipped',
+    distortion: '',
   }
 }
 
 export type RewriteDeps = {
   callModel: ModelCall
-  // Второй проход — смысловая сверка Rewrite с источником (docs/adr/0005).
-  reviewModel: ReviewCall
+  // Meaning Check — смысловая сверка Rewrite с источником (docs/adr/0005).
+  meaningCheckModel: MeaningCheckCall
   // Без LLM_API_KEY отдаём заглушку вместо обращения к модели.
   useStub: boolean
 }
 
-// Ленивый вечный кэш (docs/adr/0001): при попадании читаем из базы, при промахе
-// генерируем и сохраняем. Заглушка в кэш не попадает под видом настоящего
-// Rewrite — с появлением ключа генерация происходит по-настоящему.
+// Прошёл ли Rewrite обе сверки — только такой достоин кэша (docs/adr/0008):
+// это не заглушка, все Anchor на месте, текст отличается от Snippet и Meaning
+// Check пройден. skipped и failed не кэшируются наравне с чистым результатом,
+// иначе одна неудачная попытка стала бы вечным свойством новости (docs/adr/0001).
+function passedBothChecks(rewrite: Rewrite): boolean {
+  return (
+    !rewrite.stub &&
+    rewrite.missing.length === 0 &&
+    !rewrite.unchanged &&
+    rewrite.meaningCheck === 'passed'
+  )
+}
+
+// Ленивый кэш (docs/adr/0001): при попадании читаем из базы, при промахе
+// генерируем. В кэш пишется только прошедшее обе сверки (docs/adr/0008):
+// провалившийся Rewrite отдаётся читателю (лучшая попытка, а не 500), но не
+// кэшируется — следующее открытие пары «Article + Mood» генерит заново, а не
+// показывает тот же провал навсегда. Заглушка тоже мимо кэша: с появлением ключа
+// генерация происходит по-настоящему.
 export async function resolveRewrite(
   db: DatabaseSync,
   article: Article,
@@ -210,8 +229,8 @@ export async function resolveRewrite(
 
   const rewrite = deps.useStub
     ? stubRewrite(article, mood)
-    : await generateRewrite(article, mood, deps.callModel, deps.reviewModel)
+    : await generateRewrite(article, mood, deps.callModel, deps.meaningCheckModel)
 
-  if (!rewrite.stub) insertRewrite(db, article.link, mood, rewrite)
+  if (passedBothChecks(rewrite)) insertRewrite(db, article.link, mood, rewrite)
   return rewrite
 }

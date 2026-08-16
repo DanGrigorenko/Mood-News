@@ -18,8 +18,9 @@ Source и ведёт на исходную публикацию.
 _Avoid_: Feed, Provider, Publisher
 
 **Snippet**:
-Текст Article в том виде, в котором его отдал Source — заголовок и анонс.
-Единственная версия «как было»; полный текст публикации мы не забираем.
+Текст Article в том виде, в котором его отдал Source — заголовок и полный текст
+статьи со страницы публикации (docs/adr/0006). Единственная версия «как было»:
+именно с ним сверяется каждый Rewrite.
 _Avoid_: Original text, Body, Content, Excerpt
 
 **Ingest**:
@@ -30,8 +31,11 @@ _Avoid_: Fetch, Sync, Crawl, Import
 ### Переписывание
 
 **Mood**:
-Эмоциональный регистр, в котором читается Article. Набор Mood конечен и задан
-проектом, пользователь не может придумать свой.
+Позиция рассказчика, в которой читается Article, — а не переоценка события
+(docs/adr/0007). Регистр меняет голос и то, как этот голос ведёт себя на плохой
+новости (радость ищет надежду, не отрицая беду; ирония целится в обстоятельства,
+не в пострадавших), но не меняет исход. Набор Mood конечен и задан проектом,
+пользователь не может придумать свой.
 _Avoid_: Tone, Style, Emotion, Filter
 
 **Rewrite**:
@@ -48,11 +52,32 @@ _Avoid_: Variant, Version, Generation, Translation
 _Avoid_: Fact, Entity, Keyword, Token
 
 **Fact Check**:
-Сверка Rewrite со списком Anchor его Article. Результат — часть Rewrite и
-показывается читателю, а не прячется в логи.
+Сверка Rewrite со списком Anchor его Article. Читателю показывается сводка
+сохранности («факты сохранены: 9/9») и нотный стан с Anchor — это утверждение о
+сохранности, а не отчёт о промахе.
 _Avoid_: Validation, Verification, Guardrail
 
 **Missing Anchor**:
 Anchor, не найденный в Rewrite. Наличие хотя бы одного означает, что Rewrite не
-прошёл Fact Check — но не отменяет его: читатель видит и текст, и потерю.
+прошёл Fact Check: такой Rewrite в кэш не пишется и генерится заново
+(docs/adr/0008).
 _Avoid_: Violation, Error, Hallucination
+
+**Outcome**:
+Исход события — его направление, результат и субъект (упало/выросло,
+погиб/выжил, отклонено/принято, кто совершил действие). Неизменяем наравне с
+Anchor: Rewrite меняет тон, но не исход (docs/adr/0007).
+_Avoid_: Result, Meaning, Gist
+
+**Meaning Check**:
+Смысловая сверка Rewrite с его Snippet вторым проходом: сохранён ли Outcome и не
+добавлено ли утверждений, которых в оригинале нет (docs/adr/0005, docs/adr/0007).
+Дополняет детерминированный Fact Check, который ловит подмену Anchor, но не
+переворот исхода. Не прошедший Meaning Check Rewrite в кэш не пишется.
+_Avoid_: Second pass, Review, Semantic check
+
+**Distortion**:
+Искажение Outcome, найденное Meaning Check: перевёрнутое направление, подменённый
+субъект или дорисованный факт. Наличие Distortion означает, что Rewrite не прошёл
+Meaning Check.
+_Avoid_: Contradiction, Error, Lie

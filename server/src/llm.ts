@@ -21,17 +21,18 @@ export type ModelOutput = z.infer<typeof modelOutputSchema>
 // внятную ошибку, а не молча ретраят).
 export type ModelCall = (messages: ChatMessage[]) => Promise<ModelOutput | null>
 
-// Вердикт второго прохода — смысловой сверки (docs/adr/0005). consistent:true —
-// противоречий с источником нет; false — есть, и contradiction называет его.
-const reviewOutputSchema = z.object({
+// Вердикт Meaning Check — смысловой сверки (docs/adr/0005, docs/adr/0007).
+// consistent:true — исход события (Outcome) сохранён; false — найдено искажение
+// (Distortion), и distortion называет его.
+const meaningCheckOutputSchema = z.object({
   consistent: z.boolean(),
-  contradiction: z.string(),
+  distortion: z.string(),
 })
-export type ReviewOutput = z.infer<typeof reviewOutputSchema>
+export type MeaningCheckOutput = z.infer<typeof meaningCheckOutputSchema>
 
-// Вызов судьи второго прохода: сообщения → вердикт, либо null при не-JSON.
+// Вызов судьи Meaning Check: сообщения → вердикт, либо null при не-JSON.
 // Сетевые ошибки и таймаут, как и у ModelCall, бросаются.
-export type ReviewCall = (messages: ChatMessage[]) => Promise<ReviewOutput | null>
+export type MeaningCheckCall = (messages: ChatMessage[]) => Promise<MeaningCheckOutput | null>
 
 function anchorList(anchors: Anchor[]): string {
   return anchors.map((a) => `«${a.text}»`).join(', ')
@@ -50,15 +51,22 @@ export function buildMessages(opts: {
   // Прошлая попытка вернула текст источника без изменений — просим переписать
   // по-настоящему (issue #8).
   unchanged?: boolean
-  // Прошлая попытка исказила смысл — второй проход назвал противоречие, и мы
+  // Прошлая попытка исказила исход — Meaning Check назвал Distortion, и мы
   // сообщаем его модели, чтобы ретрай не был слепой перегенерацией (issue #10).
-  contradiction?: string
+  distortion?: string
 }): ChatMessage[] {
   const rules = [
     'Не добавляй фактов, которых нет в исходном тексте.',
     'Не меняй числа, имена, даты, места и суммы.',
     'Не выдумывай цитат.',
     'Числа и даты пиши цифрами, а не прописью: «15%», а не «пятнадцать процентов»; «2026», а не «две тысячи двадцать шестой».',
+    // Outcome неизменяем наравне с Anchor (docs/adr/0007): исход события —
+    // направление, результат и субъект — сохраняется как в источнике. Радость
+    // это позиция рассказчика, а не переоценка события.
+    'Не переворачивай исход события: упало значит упало, погиб значит погиб, отклонено значит отклонено. Направление, результат и того, кто совершил действие, не меняй — даже ради регистра.',
+    // Общий пол на все Mood.
+    'Не глумись над пострадавшими: над бедой людей не насмешничай, регистр — это тон рассказчика, а не издёвка над теми, кому плохо.',
+    'Верни простой текст без markdown-разметки: без звёздочек **, подчёркиваний _ и решёток #.',
   ]
   if (opts.anchors.length > 0) {
     rules.push(
@@ -85,9 +93,9 @@ export function buildMessages(opts: {
       'В прошлой попытке ты вернул текст источника без изменений — это не переписывание. Перепиши его заново в заданном регистре: смени формулировки, порядок и подачу, сохранив все факты.',
     )
   }
-  if (opts.contradiction) {
+  if (opts.distortion) {
     userParts.push(
-      `В прошлой попытке смысл был искажён относительно источника: ${opts.contradiction}. Исправь именно это, сохранив исход события и все факты; тон при этом можно оставить прежним.`,
+      `В прошлой попытке был искажён исход события (Outcome): ${opts.distortion}. Исправь именно это, сохранив исход события и все факты; тон при этом можно оставить прежним.`,
     )
   }
 
@@ -97,20 +105,24 @@ export function buildMessages(opts: {
   ]
 }
 
-// Промпт второго прохода: судья сверяет Rewrite с исходным Snippet на сохранность
-// смысла, а не тона (docs/adr/0005). Проверяется исход события и наличие
-// утверждений; эмоциональная окраска — законная задача Rewrite, придираться к
-// ней судья не должен.
-export function buildReviewMessages(opts: {
+// Промпт Meaning Check: судья сверяет Rewrite с исходным Snippet на сохранность
+// исхода события (Outcome), а не тона (docs/adr/0005, docs/adr/0007). Проверяется
+// направление, результат и субъект события плюс отсутствие дорисованных фактов;
+// эмоциональная окраска — законная задача Rewrite, придираться к ней судья не
+// должен. Ложное срабатывание дороже пропуска — оно убивает валидный Rewrite и
+// жжёт попытку, поэтому при сомнении вердикт consistent:true.
+export function buildMeaningCheckMessages(opts: {
   title: string
   announce: string
   rewrite: ModelOutput
 }): ChatMessage[] {
   const system = [
-    'Ты сверяешь переписанную новость с её оригиналом на сохранность смысла, а не тона.',
-    'Найди в переписанном тексте утверждение, которое противоречит исходу события в оригинале или отсутствует в оригинале: изменённый исход (погиб/выжил, вырос/упал, принято/отклонено), подменённое действующее лицо, добавленный факт, которого в оригинале нет.',
-    'Проверяй ТОЛЬКО суть события и факты. НЕ придирайся к эмоциональной окраске, тону, выбору слов и оценкам — менять тон разрешено, это и есть задача переписывания. Смена тона при сохранённом смысле противоречием НЕ считается.',
-    'Верни строго JSON. Если противоречий нет: {"consistent": true, "contradiction": ""}. Если есть: {"consistent": false, "contradiction": "кратко назови искажённое"}.',
+    'Ты сверяешь переписанную новость с её оригиналом на сохранность исхода события (Outcome), а не тона.',
+    'Найди в переписанном тексте искажение исхода (Distortion): изменённое направление или результат события (погиб/выжил, вырос/упал, принято/отклонено), подменённое действующее лицо (кто совершил действие) или добавленный факт, которого в оригинале нет.',
+    'Разные словоформы одного и того же слова (падеж, число, род: «Проскурина» и «Проскурину», «продажи» и «продаж») — это НЕ подмена субъекта. Считай подменой лишь замену одного лица или предмета на другое.',
+    'Проверяй ТОЛЬКО исход события и факты. НЕ придирайся к эмоциональной окраске, тону, выбору слов и оценкам — менять тон разрешено, это и есть задача переписывания. Смена тона при сохранённом исходе искажением НЕ считается.',
+    'Если сомневаешься, искажён исход или нет, — вердикт consistent:true. Ложная тревога убивает годный текст, поэтому наказывай только явное искажение.',
+    'Верни строго JSON. Если исход сохранён: {"consistent": true, "distortion": ""}. Если искажён: {"consistent": false, "distortion": "кратко назови искажённое"}.',
   ].join('\n')
 
   const user = [
@@ -129,22 +141,55 @@ export function buildReviewMessages(opts: {
   ]
 }
 
+// Нижняя и верхняя границы max_tokens. Нижняя — прежние 400: короткому Snippet
+// больше не нужно. Верхняя — потолок против случайного пробоя бюджета на
+// аномально длинном входе. max_tokens — это потолок, а не резервирование,
+// поэтому большой лимит судье не вредит: формула общая для обоих вызовов.
+const MIN_MAX_TOKENS = 400
+const MAX_MAX_TOKENS = 2000
+
+// Rewrite сопоставим по длине с источником, а после docs/adr/0006 Snippet — это
+// полный текст статьи, а не анонс из ленты. Поэтому max_tokens выводится из
+// объёма входа с запасом (≈ на четверть символа токен, ×1.5 на переписывание),
+// а не держится константой, которую пришлось бы трогать при каждой смене
+// источника. Границы — MIN_MAX_TOKENS…MAX_MAX_TOKENS.
+export function maxTokensFor(messages: ChatMessage[]): number {
+  const chars = messages.reduce((sum, m) => sum + m.content.length, 0)
+  const estimated = Math.ceil((chars / 4) * 1.5)
+  return Math.min(MAX_MAX_TOKENS, Math.max(MIN_MAX_TOKENS, estimated))
+}
+
 // Тело запроса к OpenAI-совместимому эндпоинту. Две детали, проверенные на живом
 // API (см. issue): "thinking": disabled обязателен, иначе весь бюджет токенов
 // уходит в reasoning и content возвращается пустым; response_format json_object
-// даёт валидный JSON без обрамления ```json.
+// даёт валидный JSON без обрамления ```json. max_tokens считается от длины входа
+// (issue #12): полный текст статьи не обрывается на середине предложения.
 export function buildRequestBody(messages: ChatMessage[], model: string) {
   return {
     model,
     thinking: { type: 'disabled' },
     response_format: { type: 'json_object' },
-    max_tokens: 400,
+    max_tokens: maxTokensFor(messages),
     messages,
   }
 }
 
+// Вычистка markdown-разметки — самая высокая точка разбора ответа модели
+// (issue #12): ниже неё вывод видят и Fact Check, и кэш, и экран. Одна правка
+// закрывает и «**Россия**» в вёрстке, и поломанную сверку цитат (Anchor вида
+// quote терял бы исходную подстроку внутри «**…**»). Снимаются маркеры
+// выделения (*, _, `) и заголовков (# в начале строки). Это чистка символов, а
+// не разбор markdown: текст, где звёздочка была частью содержания, пострадает —
+// поэтому промпт дополнительно просит простой текст без разметки.
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // заголовки # в начале строки
+    .replace(/[*_`]/g, '') // маркеры выделения
+}
+
 // Разбор content из ответа модели. Невалидный JSON или неполный объект — null:
-// в цикле генерации это ещё одна неудачная попытка, а не сбой.
+// в цикле генерации это ещё одна неудачная попытка, а не сбой. markdown из
+// title и body вычищается здесь, в единой точке разбора (issue #12).
 export function parseModelContent(content: string): ModelOutput | null {
   let json: unknown
   try {
@@ -153,20 +198,24 @@ export function parseModelContent(content: string): ModelOutput | null {
     return null
   }
   const result = modelOutputSchema.safeParse(json)
-  return result.success ? result.data : null
+  if (!result.success) return null
+  return {
+    title: stripMarkdown(result.data.title),
+    body: stripMarkdown(result.data.body),
+  }
 }
 
-// Разбор вердикта второго прохода. Не-JSON или неполный объект — null: в цикле
+// Разбор вердикта Meaning Check. Не-JSON или неполный объект — null: в цикле
 // генерации это значит «сверка не дала ответа», проверка честно помечается
 // непройденной, а не выдаётся за пройденную (docs/adr/0005).
-export function parseReviewContent(content: string): ReviewOutput | null {
+export function parseMeaningCheckContent(content: string): MeaningCheckOutput | null {
   let json: unknown
   try {
     json = JSON.parse(content)
   } catch {
     return null
   }
-  const result = reviewOutputSchema.safeParse(json)
+  const result = meaningCheckOutputSchema.safeParse(json)
   return result.success ? result.data : null
 }
 
@@ -233,12 +282,12 @@ export async function callModelOverHttp(messages: ChatMessage[]): Promise<ModelO
   return parseModelContent(await fetchChatContent(messages, 'модель'))
 }
 
-// Реальный вызов судьи второго прохода по HTTP. Та же обвязка, что и у
+// Реальный вызов судьи Meaning Check по HTTP. Та же обвязка, что и у
 // callModelOverHttp; не-JSON content возвращает null. Бросок наверху ловится
 // generateRewrite и превращается в честную пометку «сверка не проведена» —
 // запрос при этом не падает целиком.
-export async function callReviewOverHttp(
+export async function callMeaningCheckOverHttp(
   messages: ChatMessage[],
-): Promise<ReviewOutput | null> {
-  return parseReviewContent(await fetchChatContent(messages, 'смысловая сверка'))
+): Promise<MeaningCheckOutput | null> {
+  return parseMeaningCheckContent(await fetchChatContent(messages, 'смысловая сверка'))
 }

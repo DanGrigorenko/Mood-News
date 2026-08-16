@@ -9,7 +9,7 @@
 // Запуск: node .sandcastle/retry-demo.ts
 import { extractAnchors, factCheck, type Anchor } from '../server/src/anchor.ts'
 import { generateRewrite } from '../server/src/rewrite.ts'
-import type { ChatMessage, ModelOutput, ReviewOutput } from '../server/src/llm.ts'
+import type { ChatMessage, ModelOutput, MeaningCheckOutput } from '../server/src/llm.ts'
 import type { Article } from '../server/src/rss.ts'
 
 // Anchor в кавычках-ёлочках через запятую — формат вывода этого прогона.
@@ -59,11 +59,11 @@ const scriptedModel = async (messages: ChatMessage[]): Promise<ModelOutput> => {
   return out
 }
 
-// Этот прогон демонстрирует Anchor-ретрай (ступень 1), поэтому второй проход —
-// смысловая сверка (ступень 2, docs/adr/0005) — здесь всегда подтверждает смысл.
-const okReview = async (): Promise<ReviewOutput> => ({
+// Этот прогон демонстрирует Anchor-ретрай (ступень 1), поэтому Meaning Check
+// (ступень 2, docs/adr/0005) здесь всегда подтверждает исход.
+const okReview = async (): Promise<MeaningCheckOutput> => ({
   consistent: true,
-  contradiction: '',
+  distortion: '',
 })
 
 console.log(`Article: ${article.link}`)

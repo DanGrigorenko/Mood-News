@@ -6,7 +6,8 @@
     "dev": "node --env-file-if-exists=../.env --watch src/index.ts",
     "start": "node --env-file-if-exists=../.env src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "eval": "node --env-file-if-exists=../.env eval/run.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

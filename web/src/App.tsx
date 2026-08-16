@@ -111,9 +111,11 @@ function Registers(props: {
 }
 
 // Fact Check: уцелевший Anchor — нота, потерянный — пауза. Показываем весь
-// список, а не только потери: видно и что сохранено, и чего не хватает
-// (ADR 0003). Ниже — вторая ступень: смысловая сверка вторым проходом
-// (ADR 0005, issue #10). Её исход показывается рядом, а не прячется.
+// список, а не только потери: видно и что сохранено, и чего не хватает. Это
+// утверждение о сохранности фактов, а не извинение, поэтому остаётся на экране.
+// Провал обеих сверок (Missing Anchor и Meaning Check) больше не печатается
+// абзацем под текстом: его результат теперь решает судьбу Rewrite — не пишется в
+// кэш и генерится заново, — а не его вёрстку (issue #12, docs/adr/0008).
 function FactCheck(props: { rewrite: Rewrite }) {
   const { rewrite } = props
   const lost = new Set(rewrite.missing.map((a) => a.text))
@@ -131,24 +133,6 @@ function FactCheck(props: { rewrite: Rewrite }) {
           />
         ))}
       </div>
-      {rewrite.missing.length > 0 && (
-        <p className="factcheck-lost">
-          На месте пауз должны были звучать факты — значит, переписывание их
-          потеряло. Текст всё равно показан: мы не прячем промах.
-        </p>
-      )}
-      {rewrite.review === 'failed' && (
-        <p className="factcheck-lost">
-          Смысловая сверка нашла расхождение с источником: {rewrite.contradiction}.
-          Числа на месте, но смысл искажён — текст всё равно показан, мы не прячем
-          промах.
-        </p>
-      )}
-      {rewrite.review === 'skipped' && !rewrite.stub && (
-        <p className="apparatus factcheck-count">
-          смысловая сверка не проводилась — вторую ступень проверить не удалось
-        </p>
-      )}
     </section>
   )
 }
@@ -226,16 +210,6 @@ function Piece(props: {
                       <Retry onClick={retry} />
                     </>
                   )}
-                  {rewrite.unchanged && (
-                    <>
-                      <p className="editorial editorial-alert">
-                        переписать не удалось: после всех попыток модель вернула
-                        текст источника без изменений. Не прячем промах —
-                        показываем как есть.
-                      </p>
-                      <Retry onClick={retry} />
-                    </>
-                  )}
                   <FactCheck rewrite={rewrite} />
                 </div>
               )}
@@ -275,11 +249,9 @@ function Lead(props: {
     article.link,
     props.selected,
   )
-  // Заглушка и неизменённый Rewrite — это не исполнение: текст пришёл как у
-  // источника, поэтому ремарку регистра над ним ставить нельзя, иначе плашка
-  // соврёт читателю (issue #8).
-  const performed =
-    rewrite !== null && !loading && !rewrite.stub && !rewrite.unchanged
+  // Заглушка — это не исполнение: текст пришёл как у источника, поэтому ремарку
+  // регистра над ним ставить нельзя, иначе плашка соврёт читателю (issue #8).
+  const performed = rewrite !== null && !loading && !rewrite.stub
 
   return (
     <>
@@ -322,15 +294,6 @@ function Lead(props: {
         <div>
           <p className="notice">
             Модель недоступна — главная показана как у источника.
-          </p>
-          <Retry onClick={retry} />
-        </div>
-      )}
-      {rewrite !== null && !rewrite.stub && rewrite.unchanged && (
-        <div>
-          <p className="notice">
-            Переписать главную не удалось — модель вернула текст источника без
-            изменений. Показываем как есть.
           </p>
           <Retry onClick={retry} />
         </div>

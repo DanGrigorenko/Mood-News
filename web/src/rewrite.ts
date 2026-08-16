@@ -20,15 +20,17 @@ export const rewriteSchema = z.object({
   missing: z.array(anchorSchema),
   attempts: z.number(),
   stub: z.boolean(),
-  // После всех попыток Rewrite дословно совпал со Snippet — переписывание не
-  // сработало. Показываем честно, как и Missing Anchor (issue #8).
+  // После всех попыток Rewrite дословно совпал со Snippet. Поле живёт в ответе
+  // API для eval и отладки, но с экрана ушло (issue #12, docs/adr/0008).
   unchanged: z.boolean(),
-  // Второй проход — смысловая сверка Rewrite с источником (issue #10): passed —
-  // противоречий нет; failed — найдено противоречие (contradiction); skipped —
-  // сверка не отработала. skipped честно означает «не проверено».
-  review: z.enum(['passed', 'failed', 'skipped']),
-  // Название найденного противоречия — непустое только при review === 'failed'.
-  contradiction: z.string(),
+  // Meaning Check — смысловая сверка Rewrite с источником (issue #10, #12):
+  // passed — исход сохранён; failed — найдено искажение (distortion); skipped —
+  // сверка не отработала. Как и unchanged, остаётся в API, но не показывается
+  // читателю: её результат решает судьбу Rewrite, а не его вёрстку (docs/adr/0008).
+  meaningCheck: z.enum(['passed', 'failed', 'skipped']),
+  // Название найденного искажения (Distortion) — непустое только при
+  // meaningCheck === 'failed'.
+  distortion: z.string(),
 })
 export type Rewrite = z.infer<typeof rewriteSchema>
 

@@ -17,8 +17,8 @@ const base: Rewrite = {
   attempts: 1,
   stub: false,
   unchanged: false,
-  review: 'passed',
-  contradiction: '',
+  meaningCheck: 'passed',
+  distortion: '',
 }
 
 test('rewriteResponseSchema принимает пометку unchanged', () => {
@@ -35,7 +35,7 @@ test('rewriteResponseSchema принимает пометку unchanged', () => 
   assert.equal(parsed.rewrite.unchanged, true)
 })
 
-test('rewriteResponseSchema принимает провал смысловой сверки с contradiction', () => {
+test('rewriteResponseSchema принимает провал Meaning Check с distortion', () => {
   const parsed = rewriteResponseSchema.parse({
     article: {
       link: 'https://example.com/a',
@@ -44,13 +44,13 @@ test('rewriteResponseSchema принимает провал смысловой �
       announce: 'A',
       publishedAt: '',
     },
-    rewrite: { ...base, review: 'failed', contradiction: 'рост подменён падением' },
+    rewrite: { ...base, meaningCheck: 'failed', distortion: 'рост подменён падением' },
   })
-  assert.equal(parsed.rewrite.review, 'failed')
-  assert.equal(parsed.rewrite.contradiction, 'рост подменён падением')
+  assert.equal(parsed.rewrite.meaningCheck, 'failed')
+  assert.equal(parsed.rewrite.distortion, 'рост подменён падением')
 })
 
-test('rewriteResponseSchema отвергает неизвестное состояние review', () => {
+test('rewriteResponseSchema отвергает неизвестное состояние meaningCheck', () => {
   assert.throws(() =>
     rewriteResponseSchema.parse({
       article: {
@@ -60,7 +60,7 @@ test('rewriteResponseSchema отвергает неизвестное состо
         announce: 'A',
         publishedAt: '',
       },
-      rewrite: { ...base, review: 'unknown' },
+      rewrite: { ...base, meaningCheck: 'unknown' },
     }),
   )
 })

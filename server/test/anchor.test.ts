@@ -29,6 +29,21 @@ test('извлекает имена собственные, но не загла
   assert.deepEqual(names, ['Маск', 'Twitter'])
 })
 
+test('первое слово тела после переноса строки не попадает в Anchor', () => {
+  // Anchor извлекаются из склейки «заголовок\nтело». Перенос строки — такая же
+  // граница предложения, как точка: первое слово тела («Количество», «Жильё»)
+  // заглавное лишь из-за начала строки, а не потому, что имя (issue #12).
+  const anchors = extractAnchors('Ставка выросла\nКоличество сделок в Москве упало.')
+  const names = anchors.filter((a) => a.kind === 'name').map((a) => a.text)
+  assert.deepEqual(names, ['Москве']) // «Количество» отброшено, «Москве» взято
+})
+
+test('имя собственное в середине предложения после переноса берётся', () => {
+  const anchors = extractAnchors('Заголовок\nОб этом сообщил Путин вчера.')
+  const names = anchors.filter((a) => a.kind === 'name').map((a) => a.text)
+  assert.deepEqual(names, ['Путин']) // «Об» в начале строки отброшено, «Путин» взят
+})
+
 test('одинаковые Anchor не дублируются', () => {
   const anchors = extractAnchors('В 2024 году, снова в 2024 году.')
   const numbers = anchors.filter((a) => a.kind === 'number').map((a) => a.text)

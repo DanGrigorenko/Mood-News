@@ -5,7 +5,7 @@ import { listArticles, getArticle } from './db.ts'
 import { ingest } from './ingest.ts'
 import { moodSchema, moodsPayload } from './mood.ts'
 import { resolveRewrite } from './rewrite.ts'
-import { callModelOverHttp, callReviewOverHttp, hasApiKey } from './llm.ts'
+import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from './llm.ts'
 
 // HTTP-обвязка тестами не покрывается (CODING_STANDARDS): роуты — тонкие
 // оболочки над проверяемой логикой (healthPayload, listArticles, ingest,
@@ -37,7 +37,7 @@ export function createApp(db: DatabaseSync): Hono {
     try {
       const rewrite = await resolveRewrite(db, article, mood.data, {
         callModel: callModelOverHttp,
-        reviewModel: callReviewOverHttp,
+        meaningCheckModel: callMeaningCheckOverHttp,
         useStub: !hasApiKey(),
       })
       return c.json({ article, rewrite })

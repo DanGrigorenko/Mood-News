@@ -7,6 +7,7 @@ import {
   resolveRewrite,
   rewriteSchema,
   unchangedSimilarity,
+  survivingFragments,
   UNCHANGED_SIMILARITY_THRESHOLD,
 } from '../src/rewrite.ts'
 import {
@@ -231,6 +232,40 @@ test('ретрай при совпадении сообщает модели, ч
   assert.match(user, /не изменил|без изменений/)
 })
 
+// --- Отдаётся лучшая попытка, а не последняя ---
+
+test('копия со всеми Anchor не вытесняет переписывание, потерявшее один Anchor', async () => {
+  // Первая попытка — настоящее переписывание, но «15%» потеряно. Ретрай
+  // возвращает Anchor ценой того, что текст становится копией Snippet: так
+  // ведёт себя живая модель, и последняя попытка тут хуже первой.
+  const lost: ModelOutput = {
+    title: 'Хорошие вести для Москвы',
+    body: 'Собянин объявил: на город направили 1200 млрд рублей по итогам 2026 года.',
+  }
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const model = scriptedModel([lost, echo, echo])
+  const rewrite = await generateRewrite(article, 'joyful', model.call, okReview)
+
+  assert.equal(rewrite.attempts, 3)
+  assert.equal(rewrite.title, lost.title)
+  assert.equal(rewrite.unchanged, false)
+  assert.deepEqual(
+    rewrite.missing.map((a) => a.text),
+    ['15%'],
+  )
+})
+
+test('чистая попытка не вытесняется последующей, если та хуже', async () => {
+  // Вторая попытка не понадобится: чистый результат прерывает цикл. Проверяем,
+  // что именно он и возвращается.
+  const model = scriptedModel([goodRewrite])
+  const rewrite = await generateRewrite(article, 'sad', model.call, okReview)
+
+  assert.equal(rewrite.attempts, 1)
+  assert.equal(rewrite.title, goodRewrite.title)
+  assert.equal(rewrite.meaningCheck, 'passed')
+})
+
 test('невалидный JSON — ещё одна неудачная попытка, а не сбой', async () => {
   // Первый ответ не-JSON (null), второй валиден.
   const model = scriptedModel([null, goodRewrite])
@@ -246,6 +281,47 @@ test('если модель ни разу не вернула валидный J
 })
 
 // --- Мера непохожести: доля уцелевших словесных триграмм (issue #13) ---
+
+test('survivingFragments называет длинные дословно перенесённые куски', () => {
+  const snippet =
+    'Пожарным потребовалось около 6 часов, чтобы локализовать возгорание. Причиной стало короткое замыкание.'
+  const rewrite =
+    'Беда пришла вечером. Пожарным потребовалось около 6 часов чтобы локализовать возгорание, и это была долгая ночь.'
+  const found = survivingFragments(rewrite, snippet)
+  assert.equal(found.length, 1)
+  assert.match(found[0]!, /пожарным потребовалось около 6 часов чтобы локализовать возгорание/)
+})
+
+test('survivingFragments молчит, когда текст переписан', () => {
+  const snippet = 'Пожарным потребовалось около 6 часов, чтобы локализовать возгорание.'
+  const rewrite = 'Огонь удалось сбить лишь к утру — борьба заняла 6 часов.'
+  assert.deepEqual(survivingFragments(rewrite, snippet), [])
+})
+
+test('ретрай при совпадении показывает перенесённые куски', async () => {
+  // Первая попытка — копия Snippet, значит второй запрос обязан назвать куски.
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const model = scriptedModel([echo, goodRewrite])
+  const seen: ChatMessage[][] = []
+  const spy: ModelCall = async (messages) => {
+    seen.push(messages)
+    return model.call(messages)
+  }
+  await generateRewrite(article, 'ironic', spy, okReview)
+
+  const retry = seen[1]!.find((m) => m.role === 'user')!.content
+  assert.match(retry, /перенёс из источника слово в слово/)
+  assert.match(retry, /мэр москвы сообщил о росте/)
+})
+
+test('unchangedSimilarity: дословная цитата не идёт в счёт похожести', () => {
+  // Цитата обязана уцелеть дословно, поэтому её триграммы о переписывании
+  // ничего не говорят. Тот же текст без цитаты переписан целиком.
+  const quote = '«инфляция остаётся выше цели, и мы готовы удерживать ставку столько, сколько потребуется»'
+  const snippet = `На пресс-конференции по итогам заседания глава ЦБ заявила: ${quote}.`
+  const rewrite = `Регулятор не намерен смягчать политику, и вот прямая речь: ${quote}.`
+  assert.ok(unchangedSimilarity(rewrite, snippet) < UNCHANGED_SIMILARITY_THRESHOLD)
+})
 
 test('unchangedSimilarity: копия Snippet даёт максимум', () => {
   const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { MOOD_LABELS, MOOD_IDS } from '../src/mood.ts'
-import { generateRewrite, type Rewrite } from '../src/rewrite.ts'
+import { generateRewrite, unchangedSimilarity, type Rewrite } from '../src/rewrite.ts'
 import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from '../src/llm.ts'
 import type { Article } from '../src/rss.ts'
 import { summarize, formatSummary } from './aggregate.ts'
@@ -42,6 +42,26 @@ function articleOf(entry: CorpusEntry): Article {
   }
 }
 
+// Провайдер режет частые вызовы 429, а один прогон — это 50 Rewrite по 2+
+// вызова: без пауз и ретраев раннер падает на середине и весь потраченный прогон
+// уходит в никуда. Пауза между Rewrite плюс несколько попыток на 429 и таймаут.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const RETRY_PAUSE_MS = 20_000
+const BETWEEN_REWRITES_MS = 3_000
+const MAX_RETRIES = 5
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (i >= MAX_RETRIES || !/429|timeout/.test(String(err))) throw err
+      console.log(`  … провайдер отбил (${String(err)}), ждём ${RETRY_PAUSE_MS / 1000}с`)
+      await sleep(RETRY_PAUSE_MS)
+    }
+  }
+}
+
 function printRewrite(entry: CorpusEntry, rewrite: Rewrite): void {
   const kept = rewrite.anchorCount - rewrite.missing.length
   console.log('─'.repeat(72))
@@ -53,6 +73,10 @@ function printRewrite(entry: CorpusEntry, rewrite: Rewrite): void {
       (rewrite.missing.length > 0
         ? ` · потеряно: ${rewrite.missing.map((a) => a.text).join(', ')}`
         : '') +
+      // Голого unchanged мало: он говорит лишь «за порогом или нет». Само число
+      // показывает, насколько Rewrite ушёл от Snippet, — по нему и калибруется
+      // UNCHANGED_SIMILARITY_THRESHOLD.
+      ` · sim: ${unchangedSimilarity(`${rewrite.title}\n${rewrite.body}`, `${entry.title}\n${entry.announce}`).toFixed(2)}` +
       ` · unchanged: ${rewrite.unchanged}` +
       ` · Meaning Check: ${rewrite.meaningCheck}` +
       (rewrite.distortion ? ` (${rewrite.distortion})` : '') +
@@ -76,14 +100,12 @@ async function main(): Promise<void> {
   for (const entry of corpus) {
     const article = articleOf(entry)
     for (const mood of MOOD_IDS) {
-      const rewrite = await generateRewrite(
-        article,
-        mood,
-        callModelOverHttp,
-        callMeaningCheckOverHttp,
+      const rewrite = await withRetry(() =>
+        generateRewrite(article, mood, callModelOverHttp, callMeaningCheckOverHttp),
       )
       rewrites.push(rewrite)
       printRewrite(entry, rewrite)
+      await sleep(BETWEEN_REWRITES_MS)
     }
   }
 

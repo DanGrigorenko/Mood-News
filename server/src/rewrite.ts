@@ -74,6 +74,14 @@ function normalize(text: string): string {
 // августа» уже формально изменение) пропускало копии, триграммы их ловят.
 export const UNCHANGED_SIMILARITY_THRESHOLD = 0.5
 
+// Прямая речь вырезается перед сравнением: цитата обязана пережить
+// переписывание дословно (Anchor вида quote), и её уцелевшие триграммы говорят о
+// послушании, а не о лени. На короткой новости, где цитата — треть текста, они
+// одни давали sim 0.85 при честно переписанном остатке.
+function withoutQuotes(text: string): string {
+  return text.replace(/«[^»]*»/g, ' ')
+}
+
 // Словесные триграммы нормализованного текста: тройки соседних слов. Одиночные
 // слова для меры непохожести не годятся — новость обязана переиспользовать
 // существительные события, и по униграммам честный Rewrite неотличим от копии.
@@ -92,24 +100,96 @@ function wordTrigrams(text: string): string[] {
 // тождество нормализованных строк (порог длины Ingest такого не пропустит, но
 // функция обязана быть тотальной).
 export function unchangedSimilarity(rewrite: string, snippet: string): number {
-  const snippetGrams = wordTrigrams(snippet)
+  const snippetGrams = wordTrigrams(withoutQuotes(snippet))
   if (snippetGrams.length === 0) {
     return normalize(rewrite) === normalize(snippet) ? 1 : 0
   }
-  const rewriteGrams = new Set(wordTrigrams(rewrite))
+  const rewriteGrams = new Set(wordTrigrams(withoutQuotes(rewrite)))
   const kept = snippetGrams.filter((g) => rewriteGrams.has(g)).length
   return kept / snippetGrams.length
 }
 
-// Слишком ли похож Rewrite на Snippet, чтобы считать его переписыванием.
-// Сравнение идёт по объединению заголовка и тела — так же, как Fact Check.
-function matchesSnippet(title: string, body: string, article: Article): boolean {
-  return (
-    unchangedSimilarity(
-      `${title}\n${body}`,
-      `${article.title}\n${article.announce}`,
-    ) >= UNCHANGED_SIMILARITY_THRESHOLD
+// Сколько слов подряд должен насчитывать дословно перенесённый кусок, чтобы его
+// стоило показывать модели. Шесть — длиннее случайного совпадения на обязательных
+// существительных события и достаточно коротко, чтобы поймать перефраз по
+// предложению, из которого состоят провалы на длинных статьях.
+const SURVIVING_MIN_WORDS = 6
+// Сколько кусков называть в ретрае. Список нужен, чтобы модель увидела, где
+// именно она шла за источником, а не чтобы переписать за неё весь текст.
+const SURVIVING_LIMIT = 3
+
+// Куски Snippet, дословно уцелевшие в Rewrite, — от самого длинного. На длинной
+// статье модель не тянет «пересобери заново» и идёт по источнику предложение за
+// предложением, а голая просьба «смени формулировки» делает ретрай слепым.
+// Названные куски делают его прицельным — так же, как Missing Anchor делает
+// прицельным ретрай по фактам. Цитаты исключены: они обязаны уцелеть дословно.
+export function survivingFragments(rewrite: string, snippet: string): string[] {
+  const words = normalize(withoutQuotes(snippet)).split(' ').filter(Boolean)
+  const haystack = ` ${normalize(withoutQuotes(rewrite))} `
+  const found: string[] = []
+  let i = 0
+  while (i < words.length) {
+    let len = 0
+    while (
+      i + len < words.length &&
+      haystack.includes(` ${words.slice(i, i + len + 1).join(' ')} `)
+    ) {
+      len++
+    }
+    if (len >= SURVIVING_MIN_WORDS) {
+      found.push(words.slice(i, i + len).join(' '))
+      i += len
+    } else {
+      i++
+    }
+  }
+  return found.sort((a, b) => b.length - a.length).slice(0, SURVIVING_LIMIT)
+}
+
+// Доля уцелевших триграмм Snippet в Rewrite. Сравнение идёт по объединению
+// заголовка и тела — так же, как Fact Check.
+function similarityTo(title: string, body: string, article: Article): number {
+  return unchangedSimilarity(
+    `${title}\n${body}`,
+    `${article.title}\n${article.announce}`,
   )
+}
+
+// Одна попытка со всем, что о ней известно: по этим полям попытки и сравниваются.
+type Attempt = {
+  title: string
+  body: string
+  missing: Anchor[]
+  unchanged: boolean
+  similarity: number
+  meaningCheck: Rewrite['meaningCheck']
+  distortion: string
+}
+
+// Ранг попытки: чем меньше, тем лучше. Ретрай просит вернуть потерянное,
+// сохранив регистр, но на деле тянет текст обратно к формулировкам источника:
+// третья попытка сплошь и рядом набирает все Anchor ценой того, что становится
+// почти копией (замер на живой модели: sim 0.19 на первой попытке против 0.93 на
+// третьей). Поэтому отдаём лучшую попытку, а не последнюю.
+//
+// Порядок важности — по тому, что читатель получает на экране. Копия Snippet
+// хуже всего: это не Rewrite вовсе, а источник под вывеской «переписано».
+// Дальше искажение исхода — оно неправда. Потерянный Anchor мягче обоих: Fact
+// Check показывает его честно («факты сохранены: 13/14»), и текст при этом
+// остаётся настоящим переписыванием. Ни одна из этих попыток не кэшируется —
+// ранг решает лишь, что показать, пока чистого результата нет.
+function rank(a: Attempt): [number, number, number] {
+  return [a.unchanged ? 1 : 0, a.meaningCheck === 'failed' ? 1 : 0, a.missing.length]
+}
+
+// Лучшая из двух попыток: сначала по рангу, при равенстве — та, что дальше от
+// Snippet.
+function better(a: Attempt, b: Attempt): Attempt {
+  const [ra, rb] = [rank(a), rank(b)]
+  for (let i = 0; i < ra.length; i++) {
+    if (ra[i]! !== rb[i]!) return ra[i]! < rb[i]! ? a : b
+  }
+  return a.similarity <= b.similarity ? a : b
 }
 
 // Цикл: сгенерировать → Fact Check → Meaning Check. Если есть Missing Anchor
@@ -132,11 +212,11 @@ export async function generateRewrite(
   meaningCheckModel: MeaningCheckCall,
 ): Promise<Rewrite> {
   const anchors = anchorsOf(article)
-  let last: { title: string; body: string } | null = null
+  let best: Attempt | null = null
   let missing: Anchor[] = []
   let unchanged = false
+  let surviving: string[] = []
   let distortion = ''
-  let meaningCheck: Rewrite['meaningCheck'] = 'skipped'
   let attempts = 0
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -146,14 +226,30 @@ export async function generateRewrite(
       announce: article.announce,
       missing,
       unchanged,
+      surviving,
       distortion,
     })
     const out = await callModel(messages)
     attempts++
     if (out === null) continue // невалидный JSON — ещё одна неудачная попытка
-    last = out
     missing = missingIn(out.title, out.body, anchors)
-    unchanged = matchesSnippet(out.title, out.body, article)
+    const similarity = similarityTo(out.title, out.body, article)
+    unchanged = similarity >= UNCHANGED_SIMILARITY_THRESHOLD
+    surviving = unchanged
+      ? survivingFragments(
+          `${out.title}\n${out.body}`,
+          `${article.title}\n${article.announce}`,
+        )
+      : []
+    const attempt: Attempt = {
+      ...out,
+      missing,
+      unchanged,
+      similarity,
+      meaningCheck: 'skipped',
+      distortion: '',
+    }
+    best = best === null ? attempt : better(attempt, best)
     if (missing.length > 0 || unchanged) continue // Anchor-сверка не пройдена — ретрай
 
     // Anchor-сверка пройдена → Meaning Check (docs/adr/0005). Сбой запроса и
@@ -168,37 +264,36 @@ export async function generateRewrite(
     } catch {
       verdict = null
     }
-    if (verdict === null) {
-      meaningCheck = 'skipped'
+    if (verdict === null || verdict.consistent) {
+      attempt.meaningCheck = verdict === null ? 'skipped' : 'passed'
       distortion = ''
-      break
-    }
-    if (verdict.consistent) {
-      meaningCheck = 'passed'
-      distortion = ''
+      best = better(attempt, best)
       break
     }
     // Искажение — ещё одна неудачная попытка, названная в следующем ретрае.
-    meaningCheck = 'failed'
-    distortion = verdict.distortion.trim() || 'исход события искажён относительно источника'
+    attempt.meaningCheck = 'failed'
+    attempt.distortion =
+      verdict.distortion.trim() || 'исход события искажён относительно источника'
+    distortion = attempt.distortion
+    best = better(attempt, best)
   }
 
-  if (last === null) {
+  if (best === null) {
     throw new Error('модель не вернула валидный JSON ни за одну попытку')
   }
 
   return {
     mood,
-    title: last.title,
-    body: last.body,
+    title: best.title,
+    body: best.body,
     anchors,
     anchorCount: anchors.length,
-    missing,
+    missing: best.missing,
     attempts,
     stub: false, // модель вызывалась — это настоящий Rewrite
-    unchanged,
-    meaningCheck,
-    distortion,
+    unchanged: best.unchanged,
+    meaningCheck: best.meaningCheck,
+    distortion: best.distortion,
   }
 }
 

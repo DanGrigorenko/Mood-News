@@ -23,6 +23,12 @@ export const rewriteSchema = z.object({
   // После всех попыток Rewrite дословно совпал со Snippet — переписывание не
   // сработало. Показываем честно, как и Missing Anchor (issue #8).
   unchanged: z.boolean(),
+  // Второй проход — смысловая сверка Rewrite с источником (issue #10): passed —
+  // противоречий нет; failed — найдено противоречие (contradiction); skipped —
+  // сверка не отработала. skipped честно означает «не проверено».
+  review: z.enum(['passed', 'failed', 'skipped']),
+  // Название найденного противоречия — непустое только при review === 'failed'.
+  contradiction: z.string(),
 })
 export type Rewrite = z.infer<typeof rewriteSchema>
 

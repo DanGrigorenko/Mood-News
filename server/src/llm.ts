@@ -97,21 +97,34 @@ const REQUEST_TIMEOUT_MS = 30_000
 // повторяем с растущей паузой. Клиентские ошибки (401, 400) не повторяем: они
 // не пройдут и на десятый раз.
 const RETRY_STATUSES = (status: number): boolean => status === 429 || status >= 500
+
+// Прод-паузы backoff: прежние значения дословно. Живут здесь как значение по
+// умолчанию для сетевого adapter; сама политика «сколько раз и с какой паузой
+// повторять» теперь описана один раз — числами в transport.retryDelays, а не
+// константой module (issue #29). Раннер eval подставляет свои длинные паузы,
+// тесты — мгновенные.
 const RETRY_DELAYS_MS = [1_000, 4_000, 10_000]
 
 // Транспорт как зависимость: функция запроса (в проде — сеть, в тестах —
-// подставная) и пауза backoff (в проде — таймер, в тестах — мгновенная, чтобы
-// повтор по 429 проверялся без ожидания). Два adapter оправдывают seam — тот, что
-// ходит в сеть, и тот, что её изображает (issue #22).
+// подставная), пауза backoff (в проде — таймер, в тестах — мгновенная) и паузы
+// повтора retryDelays — сколько раз и с какой паузой повторять по 429/5xx.
+// Прод-adapter несёт прежние значения, тесты — мгновенные, eval — длинные, так
+// повтор описан ровно один раз и его паузы не складываются со вторым циклом
+// (issue #22, #29). Три adapter оправдывают seam — сеть, её изображение в тестах
+// и длинные паузы eval.
 export type Transport = {
   request: (url: string, init: RequestInit) => Promise<Response>
   sleep: (ms: number) => Promise<void>
+  retryDelays: number[]
 }
 
-// Настоящий сетевой adapter: fetch с таймаутом плюс реальная пауза backoff.
-const httpTransport: Transport = {
+// Настоящий сетевой adapter: fetch с таймаутом, реальная пауза backoff и
+// прод-значения пауз повтора. Экспортируется, чтобы eval переиспользовал сеть и
+// таймер, подменив лишь паузы повтора (issue #29).
+export const httpTransport: Transport = {
   request: (url, init) => fetch(url, init),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  retryDelays: RETRY_DELAYS_MS,
 }
 
 // Единственный HTTP-adapter обоих вызовов: POST на /chat/completions с повтором
@@ -129,7 +142,7 @@ export async function fetchChatContent(
   const { baseUrl, model, apiKey } = llmConfig()
 
   let res: Response | null = null
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+  for (let attempt = 0; attempt <= transport.retryDelays.length; attempt++) {
     try {
       res = await transport.request(`${baseUrl}/chat/completions`, {
         method: 'POST',
@@ -145,7 +158,7 @@ export async function fetchChatContent(
       throw new Error(`${label} недоступна: ${reason}`)
     }
     if (res.ok || !RETRY_STATUSES(res.status)) break
-    const pause = RETRY_DELAYS_MS[attempt]
+    const pause = transport.retryDelays[attempt]
     if (pause === undefined) break // попытки кончились — отдаём последний ответ
     await transport.sleep(pause)
   }
@@ -166,23 +179,33 @@ export async function fetchChatContent(
 // (callModelOverHttp/callMeaningCheckOverHttp) различались ровно этим и изображали
 // «два adapter» там, где adapter один — теперь оба это привязки одного httpCall
 // (issue #22). Форма сообщений чат-API строится здесь, за seam, и уносится в сеть.
+// Транспорт — параметр привязки: прод берёт сетевой по умолчанию, eval подставляет
+// свой с длинными паузами повтора (issue #29).
 function httpCall<B, O>(
   build: (brief: B) => ChatMessage[],
   parse: (content: string) => O | null,
   label: string,
-): (brief: B) => Promise<O | null> {
-  return (brief) => fetchChatContent(build(brief), label).then(parse)
+): (transport?: Transport) => (brief: B) => Promise<O | null> {
+  return (transport = httpTransport) => (brief) =>
+    fetchChatContent(build(brief), label, transport).then(parse)
 }
 
-// Реальный вызов модели по HTTP. Недоступность, таймаут и не-2xx бросают Error с
-// внятным текстом; не-JSON content возвращает null (неудачная попытка).
-export const callModelOverHttp: ModelCall = httpCall(buildMessages, parseModelContent, 'модель')
-
-// Реальный вызов судьи Meaning Check по HTTP. Тот же adapter; не-JSON content
-// возвращает null. Бросок наверху ловится generateRewrite и превращается в
-// честную пометку «сверка не проведена» — запрос при этом не падает целиком.
-export const callMeaningCheckOverHttp: MeaningCheckCall = httpCall(
+// Фабрики вызова модели и судьи над заданным транспортом. Раннер eval строит свой
+// Transport (длинные паузы повтора) и получает через них ModelCall/MeaningCheckCall
+// с тем же поведением, что и прод — без собственного цикла повтора (issue #29).
+export const makeModelCall = httpCall(buildMessages, parseModelContent, 'модель')
+export const makeMeaningCheckCall = httpCall(
   buildMeaningCheckMessages,
   parseMeaningCheckContent,
   'смысловая сверка',
 )
+
+// Реальный вызов модели по HTTP через сетевой транспорт. Недоступность, таймаут и
+// не-2xx бросают Error с внятным текстом; не-JSON content возвращает null
+// (неудачная попытка).
+export const callModelOverHttp: ModelCall = makeModelCall()
+
+// Реальный вызов судьи Meaning Check по HTTP. Тот же adapter; не-JSON content
+// возвращает null. Бросок наверху ловится generateRewrite и превращается в
+// честную пометку «сверка не проведена» — запрос при этом не падает целиком.
+export const callMeaningCheckOverHttp: MeaningCheckCall = makeMeaningCheckCall()

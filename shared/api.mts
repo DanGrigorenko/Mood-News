@@ -94,7 +94,13 @@ export type RewriteResponse = z.infer<typeof rewriteResponseSchema>
 
 // --- Ingest ---
 
-// Ответ POST /api/ingest: число добавленных новостей для отчёта кнопки
-// «Обновить». Остальные поля сервера (skipped) фронту не нужны.
-export const ingestResultSchema = z.object({ added: z.number() })
+// Ответ POST /api/ingest: сколько новостей добавлено и сколько отброшено при
+// заборе полного текста (нет правила или тела, текст короче порога, запрос
+// страницы упал). skipped несёт контракт наравне с added: раньше сервер его
+// считал, но схема ответа его срезала, роут единственный из четырёх не прогонял
+// ответ через схему — и погасшая лента до экрана не доходила (issue #30).
+export const ingestResultSchema = z.object({
+  added: z.number(),
+  skipped: z.number(),
+})
 export type IngestResult = z.infer<typeof ingestResultSchema>

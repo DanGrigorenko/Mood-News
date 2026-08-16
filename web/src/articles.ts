@@ -6,18 +6,21 @@ import {
   articlesResponseSchema,
   ingestResultSchema,
   type Article,
+  type IngestResult,
 } from '../../shared/api.mts'
 import { apiFetch } from './api.ts'
 
-export { articleSchema, type Article }
+export { articleSchema, type Article, type IngestResult }
 export const articlesSchema = articlesResponseSchema
 
 export async function fetchArticles(): Promise<Article[]> {
   return (await apiFetch('/api/articles', articlesResponseSchema)).articles
 }
 
-export async function runIngest(): Promise<number> {
-  return (await apiFetch('/api/ingest', ingestResultSchema, { method: 'POST' })).added
+// Ingest отдаёт и добавленное, и отброшенное: погасшая лента должна быть видна
+// читателю (issue #30), поэтому наружу идёт весь результат, а не одно added.
+export async function runIngest(): Promise<IngestResult> {
+  return apiFetch('/api/ingest', ingestResultSchema, { method: 'POST' })
 }
 
 // Русская форма числительного «новость» для отчёта кнопки «Обновить».
@@ -30,10 +33,15 @@ function pluralNews(n: number): string {
   return 'новостей'
 }
 
-export function formatAdded(added: number): string {
-  if (added === 0) return 'Новых новостей нет'
-  const verb = added % 10 === 1 && added % 100 !== 11 ? 'Добавлена' : 'Добавлено'
-  return `${verb} ${added} ${pluralNews(added)}`
+// Отчёт кнопки «Обновить». Отброшенное (недоступный текст) показывается рядом с
+// добавленным, чтобы погасшая лента была видна читателю (issue #30). Ничего не
+// отброшено — про отброшенное молчим.
+export function formatAdded(added: number, skipped = 0): string {
+  const base =
+    added === 0
+      ? 'Новых новостей нет'
+      : `${added % 10 === 1 && added % 100 !== 11 ? 'Добавлена' : 'Добавлено'} ${added} ${pluralNews(added)}`
+  return skipped > 0 ? `${base}, отброшено ${skipped}` : base
 }
 
 // Короткая форма для строк выпуска: полная дата занимает две строки и рвёт

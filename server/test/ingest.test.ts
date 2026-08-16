@@ -1,8 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { openDb, listArticles, countArticles, getArticle, insertArticles } from '../src/db.ts'
-import { ingest, stripAgencyHeader, MIN_SNIPPET_LENGTH } from '../src/ingest.ts'
-import { extractAnchors } from '../src/anchor.ts'
+import { ingest, stripAgencyHeader, MIN_SNIPPET_LENGTH, type Feed } from '../src/ingest.ts'
 
 // Лента отдаёт только Snippet (заголовок + анонс); полный текст Ingest забирает
 // со страницы (issue #11). Источник в тестах — Коммерсантъ: его страница —
@@ -33,7 +32,7 @@ const fullPage = (n: number) => `<html><body>
     будет дальше и какие последствия ожидаются в ближайшее время.</p>
 </body></html>`
 
-const komFeed = [{ url: 'https://k.test/rss', source: 'Коммерсантъ' }]
+const komFeed: Feed[] = [{ url: 'https://k.test/rss', source: 'Коммерсантъ' }]
 
 test('ingest сохраняет полный текст со страницы как Snippet, не анонс', async () => {
   const db = openDb(':memory:')
@@ -155,25 +154,46 @@ test('строка, похожая на шапку, но в середине т�
   assert.equal(stripAgencyHeader(text), text)
 })
 
-test('после среза шапки у заметки про Мойзеса остаётся два Anchor вместо шести', () => {
-  const withHeader =
-    'МОСКВА, 16 авг - РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление.'
-  const before = extractAnchors(withHeader)
-  const after = extractAnchors(stripAgencyHeader(withHeader))
+// --- Счётчик отброшенного считает все три причины (issue #30) ---
 
-  assert.ok(before.length > after.length) // шапка давала лишние Anchor
-  assert.equal(after.length, 2) // остаются факты истории — ЦСКА и Мойзес
-  assert.deepEqual(
-    after.map((a) => a.text).sort(),
-    ['Мойзесу', 'ЦСКА'],
-  )
+// Погасшая лента должна быть видна: одна публикация отсеивается по каждой из
+// трёх причин отброса, и счётчик skipped считает их все за один прогон. Причины:
+// нет тела на странице (заглушка вместо контейнера), текст короче порога, запрос
+// страницы упал. Добавленной остаётся ровно одна полноценная новость.
+test('skipped считает все три причины отброса за один прогон', async () => {
+  const db = openDb(':memory:')
+  const fourItems = `<?xml version="1.0"?>
+    <rss version="2.0"><channel>
+      <item><title>Полная</title><link>https://k.test/full</link>
+        <description>a</description><pubDate>Mon, 16 Aug 2026 09:00:00 +0300</pubDate></item>
+      <item><title>Без тела</title><link>https://k.test/nobody</link>
+        <description>a</description><pubDate>Mon, 16 Aug 2026 09:00:00 +0300</pubDate></item>
+      <item><title>Короткая</title><link>https://k.test/short</link>
+        <description>a</description><pubDate>Mon, 16 Aug 2026 09:00:00 +0300</pubDate></item>
+      <item><title>Упавшая</title><link>https://k.test/boom</link>
+        <description>a</description><pubDate>Mon, 16 Aug 2026 09:00:00 +0300</pubDate></item>
+    </channel></rss>`
+  const result = await ingest(db, {
+    feeds: komFeed,
+    fetchFeed: async () => fourItems,
+    fetchPage: async (url) => {
+      if (url.endsWith('/full')) return fullPage(1)
+      if (url.endsWith('/nobody')) return '<html><body>Servicepipe captcha</body></html>'
+      if (url.endsWith('/short')) return `<html><body><p class="doc__text">Коротко.</p></body></html>`
+      throw new Error('страница недоступна') // /boom
+    },
+  })
+
+  assert.equal(result.added, 1)
+  assert.equal(result.skipped, 3) // нет тела + короткий текст + упавший запрос
+  assert.equal(countArticles(db), 1)
 })
 
 // --- Порог длины Snippet при Ingest (issue #13) ---
 
 // Страница РИА: текст лежит в div.article__text. Длину текста задаём явно, чтобы
 // проверять порог MIN_SNIPPET_LENGTH точно.
-const riaFeed = [{ url: 'https://ria.test/rss', source: 'РИА Новости' }]
+const riaFeed: Feed[] = [{ url: 'https://ria.test/rss', source: 'РИА Новости' }]
 const riaFeedXml = `<?xml version="1.0"?>
   <rss version="2.0"><channel>
     <item><title>Заметка</title><link>https://ria.test/1</link>

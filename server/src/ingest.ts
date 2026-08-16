@@ -2,24 +2,22 @@ import type { DatabaseSync } from 'node:sqlite'
 import { parseFeed } from './rss.ts'
 import { insertArticles } from './db.ts'
 import { extractArticleText } from './article-text.ts'
+import { SOURCES, type Source } from './source.ts'
+import { type IngestResult } from '../../shared/api.mts'
 
-export type Feed = { url: string; source: string }
+export type Feed = { url: string; source: Source }
+export type { IngestResult }
 
-// Русскоязычные RSS-ленты. Полный текст лента не отдаёт (ни content:encoded, ни
-// длинный description) — Ingest забирает его со страницы публикации и хранит как
-// Snippet (issue #11, новый ADR пересматривает 0004).
-//
-// Список сокращён до источников, чьи страницы открыты: Коммерсантъ, РИА Новости,
-// Интерфакс. ТАСС (JS-капча Servicepipe) и Lenta.ru (редирект на заглушку)
-// убраны — их страницы закрыты, а анонсами мы больше не довольствуемся. Ленты
-// независимы: падение одной не мешает остальным (см. try/catch в ingest).
-export const FEEDS: Feed[] = [
-  { url: 'https://www.kommersant.ru/RSS/news.xml', source: 'Коммерсантъ' },
-  { url: 'https://ria.ru/export/rss2/archive/index.xml', source: 'РИА Новости' },
-  { url: 'https://www.interfax.ru/rss.asp', source: 'Интерфакс' },
-]
-
-export type IngestResult = { added: number; skipped: number }
+// Ленты, из которых идёт Ingest, — по одной на Source. Список и url ленты живут
+// в module Source рядом с правилом извлечения (issue #30): здесь FEEDS лишь
+// разворачивает конечный набор в список пар {url, source}. Полный текст лента не
+// отдаёт (ни content:encoded, ни длинный description) — Ingest забирает его со
+// страницы публикации и хранит как Snippet (issue #11, новый ADR пересматривает
+// 0004). Ленты независимы: падение одной не мешает остальным (см. try/catch).
+export const FEEDS: Feed[] = (Object.keys(SOURCES) as Source[]).map((source) => ({
+  url: SOURCES[source].url,
+  source,
+}))
 
 // Служебная шапка агентства в начале текста: заглавный топоним, дата, тире,
 // название агентства, точка — «МОСКВА, 16 авг - РИА Новости.». Она принадлежит

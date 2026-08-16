@@ -342,8 +342,8 @@ export function App() {
     setRefreshing(true)
     setNotice(null)
     try {
-      const added = await runIngest()
-      setNotice(formatAdded(added))
+      const { added, skipped } = await runIngest()
+      setNotice(formatAdded(added, skipped))
       await load()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err))

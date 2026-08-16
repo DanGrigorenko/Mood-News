@@ -8,6 +8,7 @@ import { resolveRewrite } from './rewrite.ts'
 import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from './llm.ts'
 import {
   articlesResponseSchema,
+  ingestResultSchema,
   moodsResponseSchema,
   rewriteResponseSchema,
 } from '../../shared/api.mts'
@@ -58,10 +59,11 @@ export function createApp(db: DatabaseSync): Hono {
   })
 
   // Кнопка «Обновить»: повторный Ingest, отвечаем числом добавленных и
-  // отброшенных (недоступный полный текст) новостей.
+  // отброшенных (недоступный полный текст) новостей. Ответ прогоняется через
+  // общую схему наравне с остальными тремя роутами — skipped доходит до экрана.
   app.post('/api/ingest', async (c) => {
     const result = await ingest(db)
-    return c.json(result)
+    return c.json(ingestResultSchema.parse(result))
   })
 
   return app

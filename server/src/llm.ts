@@ -35,6 +35,9 @@ export function buildMessages(opts: {
   announce: string
   anchors: Anchor[]
   missing: Anchor[]
+  // Прошлая попытка вернула текст источника без изменений — просим переписать
+  // по-настоящему (issue #8).
+  unchanged?: boolean
 }): ChatMessage[] {
   const rules = [
     'Не добавляй фактов, которых нет в исходном тексте.',
@@ -60,6 +63,11 @@ export function buildMessages(opts: {
   if (opts.missing.length > 0) {
     userParts.push(
       `В прошлой попытке потеряны обязательные фрагменты — верни их дословно: ${anchorList(opts.missing)}.`,
+    )
+  }
+  if (opts.unchanged) {
+    userParts.push(
+      'В прошлой попытке ты вернул текст источника без изменений — это не переписывание. Перепиши его заново в заданном регистре: смени формулировки, порядок и подачу, сохранив все факты.',
     )
   }
 

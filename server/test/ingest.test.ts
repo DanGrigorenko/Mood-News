@@ -216,7 +216,7 @@ test('длина считается после среза шапки, а не д
   const { db, result } = await ingestRia(header + tail)
   assert.equal(result.added, 0) // после среза хвост короче порога
   assert.equal(result.skipped, 1)
-  assert.equal(countArticles(db), 1 - 1)
+  assert.equal(countArticles(db), 0)
 })
 
 test('уже сохранённая Article с пустым анонсом не отдаётся в выдаче', () => {

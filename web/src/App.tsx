@@ -9,6 +9,25 @@ import {
 import { fetchMoods, type Mood } from './moods.ts'
 import { fetchRewrite, factCheckSummary, type Rewrite } from './rewrite.ts'
 
+// Кнопки переключателя Mood. Один и тот же список рисуется в шапке и в открытой
+// карточке (issue #5), отличаются только обёртки — их оставляем на месте вызова.
+function MoodButtons(props: {
+  moods: Mood[]
+  selected: string
+  onSelect: (id: string) => void
+}) {
+  return props.moods.map((mood) => (
+    <button
+      key={mood.id}
+      className={mood.id === props.selected ? 'mood active' : 'mood'}
+      aria-pressed={mood.id === props.selected}
+      onClick={() => props.onSelect(mood.id)}
+    >
+      {mood.label}
+    </button>
+  ))
+}
+
 export function App() {
   const [articles, setArticles] = useState<Article[]>([])
   const [moods, setMoods] = useState<Mood[]>([])
@@ -91,16 +110,11 @@ export function App() {
       </header>
 
       <nav className="moods" aria-label="Настроение">
-        {moods.map((mood) => (
-          <button
-            key={mood.id}
-            className={mood.id === selectedMood ? 'mood active' : 'mood'}
-            aria-pressed={mood.id === selectedMood}
-            onClick={() => setSelectedMood(mood.id)}
-          >
-            {mood.label}
-          </button>
-        ))}
+        <MoodButtons
+          moods={moods}
+          selected={selectedMood}
+          onSelect={setSelectedMood}
+        />
       </nav>
 
       {notice !== null && <p>{notice}</p>}
@@ -140,16 +154,11 @@ export function App() {
             </button>
 
             <div className="modal-moods">
-              {moods.map((mood) => (
-                <button
-                  key={mood.id}
-                  className={mood.id === selectedMood ? 'mood active' : 'mood'}
-                  aria-pressed={mood.id === selectedMood}
-                  onClick={() => setSelectedMood(mood.id)}
-                >
-                  {mood.label}
-                </button>
-              ))}
+              <MoodButtons
+                moods={moods}
+                selected={selectedMood}
+                onSelect={setSelectedMood}
+              />
             </div>
 
             <div className="side-by-side">

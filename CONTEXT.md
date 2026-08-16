@@ -125,3 +125,14 @@ module (`web/src/useRewrite.ts`) из корневого файла. Interface: 
 переход проверяется тестом; в API ходит общим `fetchRewrite` (Общий контракт).
 Хук в App.tsx — тонкая подписка на этот module.
 _Avoid_: Hook, Effect, State
+
+**Транспорт (transport)**:
+Единственный HTTP-adapter к модели (`server/src/llm.ts`): строит из Brief
+сообщения чат-API, POST на `/chat/completions`, повтор по 429/5xx с растущей
+паузой backoff и таймаут запроса. Функцию запроса и паузу берёт зависимостью
+(Transport) — в проде это сеть и таймер, в тестах подставные, так повтор, backoff
+и таймаут проверяются без живого лимита провайдера. Разбор ответа (content →
+вывод, снятие markdown) живёт отдельно, в `server/src/parse.ts`, а не в коде про
+retry. Оба вызова (модель и Meaning Check) — привязки одного adapter, различаются
+лишь построителем сообщений, разбором и меткой в тексте ошибки.
+_Avoid_: Client, Fetcher, Gateway

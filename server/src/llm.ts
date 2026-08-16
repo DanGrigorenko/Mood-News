@@ -6,35 +6,30 @@ import {
   type RewriteBrief,
   type MeaningCheckBrief,
 } from './prompt.ts'
+import {
+  parseModelContent,
+  parseMeaningCheckContent,
+  type ModelOutput,
+  type MeaningCheckOutput,
+} from './parse.ts'
 
 // Транспорт к модели: OpenAI-совместимый HTTP. LLM_BASE_URL, LLM_MODEL и
 // LLM_API_KEY берутся из окружения (.env в корне, через --env-file-if-exists),
 // чтобы z.ai/GLM, OpenRouter и Groq подключались сменой трёх переменных. Текст
-// обращений живёт в prompt.ts: этот module строит из Brief сообщения чат-API и
-// уносит их в сеть, а сам русского текста промптов не знает (issue #21, PRD #18).
+// обращений живёт в prompt.ts, разбор ответа — в parse.ts: этот module строит из
+// Brief сообщения чат-API и уносит их в сеть, а сам ни русского текста промптов,
+// ни разбора content не знает (issue #21, #22, PRD #18).
 
-// Модель обязана вернуть JSON ровно такой формы. Невалидный JSON или нехватка
-// полей — это просто ещё одна неудачная попытка (см. parseModelContent).
-const modelOutputSchema = z.object({
-  title: z.string().min(1),
-  body: z.string().min(1),
-})
-export type ModelOutput = z.infer<typeof modelOutputSchema>
+// Вывод модели и вердикт судьи описаны в parse.ts (разбор ответа). Реэкспорт —
+// чтобы прежние импортёры (rewrite.ts, тесты) брали их отсюда, где живут типы
+// вызовов ModelCall/MeaningCheckCall, а не переезжали.
+export type { ModelOutput, MeaningCheckOutput }
 
 // Вызов модели: Brief в терминах домена → распарсенный вывод, либо null, если
 // модель вернула не-JSON. Форма сообщений чат-API за этот seam не выходит — её
 // строит adapter из Brief (issue #21). Сетевые ошибки и таймаут бросаются (их
 // показывают читателю как внятную ошибку, а не молча ретраят).
 export type ModelCall = (brief: RewriteBrief) => Promise<ModelOutput | null>
-
-// Вердикт Meaning Check — смысловой сверки (docs/adr/0005, docs/adr/0007).
-// consistent:true — исход события (Outcome) сохранён; false — найдено искажение
-// (Distortion), и distortion называет его.
-const meaningCheckOutputSchema = z.object({
-  consistent: z.boolean(),
-  distortion: z.string(),
-})
-export type MeaningCheckOutput = z.infer<typeof meaningCheckOutputSchema>
 
 // Вызов судьи Meaning Check: Brief → вердикт, либо null при не-JSON. Как и у
 // ModelCall, сообщения чат-API за seam не выходят. Сетевые ошибки и таймаут
@@ -74,51 +69,6 @@ export function buildRequestBody(messages: ChatMessage[], model: string) {
   }
 }
 
-// Вычистка markdown-разметки — самая высокая точка разбора ответа модели
-// (issue #12): ниже неё вывод видят и Fact Check, и кэш, и экран. Одна правка
-// закрывает и «**Россия**» в вёрстке, и поломанную сверку цитат (Anchor вида
-// quote терял бы исходную подстроку внутри «**…**»). Снимаются маркеры
-// выделения (*, _, `) и заголовков (# в начале строки). Это чистка символов, а
-// не разбор markdown: текст, где звёздочка была частью содержания, пострадает —
-// поэтому промпт дополнительно просит простой текст без разметки.
-export function stripMarkdown(text: string): string {
-  return text
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '') // заголовки # в начале строки
-    .replace(/[*_`]/g, '') // маркеры выделения
-}
-
-// Разбор content из ответа модели. Невалидный JSON или неполный объект — null:
-// в цикле генерации это ещё одна неудачная попытка, а не сбой. markdown из
-// title и body вычищается здесь, в единой точке разбора (issue #12).
-export function parseModelContent(content: string): ModelOutput | null {
-  let json: unknown
-  try {
-    json = JSON.parse(content)
-  } catch {
-    return null
-  }
-  const result = modelOutputSchema.safeParse(json)
-  if (!result.success) return null
-  return {
-    title: stripMarkdown(result.data.title),
-    body: stripMarkdown(result.data.body),
-  }
-}
-
-// Разбор вердикта Meaning Check. Не-JSON или неполный объект — null: в цикле
-// генерации это значит «сверка не дала ответа», проверка честно помечается
-// непройденной, а не выдаётся за пройденную (docs/adr/0005).
-export function parseMeaningCheckContent(content: string): MeaningCheckOutput | null {
-  let json: unknown
-  try {
-    json = JSON.parse(content)
-  } catch {
-    return null
-  }
-  const result = meaningCheckOutputSchema.safeParse(json)
-  return result.success ? result.data : null
-}
-
 // Ответ chat/completions: нам нужен только текст первого choice.
 const chatResponseSchema = z.object({
   choices: z
@@ -149,20 +99,39 @@ const REQUEST_TIMEOUT_MS = 30_000
 const RETRY_STATUSES = (status: number): boolean => status === 429 || status >= 500
 const RETRY_DELAYS_MS = [1_000, 4_000, 10_000]
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+// Транспорт как зависимость: функция запроса (в проде — сеть, в тестах —
+// подставная) и пауза backoff (в проде — таймер, в тестах — мгновенная, чтобы
+// повтор по 429 проверялся без ожидания). Два adapter оправдывают seam — тот, что
+// ходит в сеть, и тот, что её изображает (issue #22).
+export type Transport = {
+  request: (url: string, init: RequestInit) => Promise<Response>
+  sleep: (ms: number) => Promise<void>
+}
 
-// Общая HTTP-обвязка обоих вызовов: POST на /chat/completions и разбор ответа до
-// content первого choice. label подставляется в текст ошибок («модель
-// недоступна», «смысловая сверка ответила 500») — оба существительных женского
-// рода, поэтому формулировки согласуются. Недоступность, таймаут и не-2xx бросают
-// Error; иначе возвращается сырой content для разбора вызывающим.
-async function fetchChatContent(messages: ChatMessage[], label: string): Promise<string> {
+// Настоящий сетевой adapter: fetch с таймаутом плюс реальная пауза backoff.
+const httpTransport: Transport = {
+  request: (url, init) => fetch(url, init),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}
+
+// Единственный HTTP-adapter обоих вызовов: POST на /chat/completions с повтором
+// по 429/5xx и разбор ответа до content первого choice. Функцию запроса и паузу
+// берёт из transport — за этим seam и тестируются повтор, backoff и таймаут.
+// label подставляется в текст ошибок («модель недоступна», «смысловая сверка
+// ответила 500») — оба существительных женского рода, поэтому формулировки
+// согласуются. Недоступность, таймаут и не-2xx бросают Error; иначе возвращается
+// сырой content для разбора вызывающим (parse.ts).
+export async function fetchChatContent(
+  messages: ChatMessage[],
+  label: string,
+  transport: Transport = httpTransport,
+): Promise<string> {
   const { baseUrl, model, apiKey } = llmConfig()
 
   let res: Response | null = null
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
     try {
-      res = await fetch(`${baseUrl}/chat/completions`, {
+      res = await transport.request(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -178,7 +147,7 @@ async function fetchChatContent(messages: ChatMessage[], label: string): Promise
     if (res.ok || !RETRY_STATUSES(res.status)) break
     const pause = RETRY_DELAYS_MS[attempt]
     if (pause === undefined) break // попытки кончились — отдаём последний ответ
-    await sleep(pause)
+    await transport.sleep(pause)
   }
 
   if (res === null || !res.ok) {
@@ -192,21 +161,28 @@ async function fetchChatContent(messages: ChatMessage[], label: string): Promise
   return parsed.data.choices[0]!.message.content
 }
 
-// Реальный вызов модели по HTTP: Brief → сообщения чат-API строятся здесь, за
-// seam, и уносятся в сеть. Недоступность, таймаут и не-2xx бросают Error с
-// внятным текстом; не-JSON content возвращает null (неудачная попытка).
-export async function callModelOverHttp(brief: RewriteBrief): Promise<ModelOutput | null> {
-  return parseModelContent(await fetchChatContent(buildMessages(brief), 'модель'))
+// Из единственного adapter вызов лепится тремя данными: чем строить сообщения из
+// Brief, чем разбирать content и как назвать себя в ошибке. Прежние два wrapper
+// (callModelOverHttp/callMeaningCheckOverHttp) различались ровно этим и изображали
+// «два adapter» там, где adapter один — теперь оба это привязки одного httpCall
+// (issue #22). Форма сообщений чат-API строится здесь, за seam, и уносится в сеть.
+function httpCall<B, O>(
+  build: (brief: B) => ChatMessage[],
+  parse: (content: string) => O | null,
+  label: string,
+): (brief: B) => Promise<O | null> {
+  return (brief) => fetchChatContent(build(brief), label).then(parse)
 }
 
-// Реальный вызов судьи Meaning Check по HTTP. Та же обвязка, что и у
-// callModelOverHttp; не-JSON content возвращает null. Бросок наверху ловится
-// generateRewrite и превращается в честную пометку «сверка не проведена» —
-// запрос при этом не падает целиком.
-export async function callMeaningCheckOverHttp(
-  brief: MeaningCheckBrief,
-): Promise<MeaningCheckOutput | null> {
-  return parseMeaningCheckContent(
-    await fetchChatContent(buildMeaningCheckMessages(brief), 'смысловая сверка'),
-  )
-}
+// Реальный вызов модели по HTTP. Недоступность, таймаут и не-2xx бросают Error с
+// внятным текстом; не-JSON content возвращает null (неудачная попытка).
+export const callModelOverHttp: ModelCall = httpCall(buildMessages, parseModelContent, 'модель')
+
+// Реальный вызов судьи Meaning Check по HTTP. Тот же adapter; не-JSON content
+// возвращает null. Бросок наверху ловится generateRewrite и превращается в
+// честную пометку «сверка не проведена» — запрос при этом не падает целиком.
+export const callMeaningCheckOverHttp: MeaningCheckCall = httpCall(
+  buildMeaningCheckMessages,
+  parseMeaningCheckContent,
+  'смысловая сверка',
+)

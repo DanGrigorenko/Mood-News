@@ -112,16 +112,18 @@ function Registers(props: {
 
 // Fact Check: уцелевший Anchor — нота, потерянный — пауза. Показываем весь
 // список, а не только потери: видно и что сохранено, и чего не хватает
-// (ADR 0003).
+// (ADR 0003). Ниже — вторая ступень: смысловая сверка вторым проходом
+// (ADR 0005, issue #10). Её исход показывается рядом, а не прячется.
 function FactCheck(props: { rewrite: Rewrite }) {
-  const lost = new Set(props.rewrite.missing.map((a) => a.text))
+  const { rewrite } = props
+  const lost = new Set(rewrite.missing.map((a) => a.text))
   return (
     <section className="factcheck">
       <span className="apparatus factcheck-count">
-        {factCheckSummary(props.rewrite)}
+        {factCheckSummary(rewrite)}
       </span>
       <div className="factcheck-row">
-        {props.rewrite.anchors.map((anchor) => (
+        {rewrite.anchors.map((anchor) => (
           <AnchorMark
             key={`${anchor.kind}:${anchor.text}`}
             kept={!lost.has(anchor.text)}
@@ -129,10 +131,22 @@ function FactCheck(props: { rewrite: Rewrite }) {
           />
         ))}
       </div>
-      {props.rewrite.missing.length > 0 && (
+      {rewrite.missing.length > 0 && (
         <p className="factcheck-lost">
           На месте пауз должны были звучать факты — значит, переписывание их
           потеряло. Текст всё равно показан: мы не прячем промах.
+        </p>
+      )}
+      {rewrite.review === 'failed' && (
+        <p className="factcheck-lost">
+          Смысловая сверка нашла расхождение с источником: {rewrite.contradiction}.
+          Числа на месте, но смысл искажён — текст всё равно показан, мы не прячем
+          промах.
+        </p>
+      )}
+      {rewrite.review === 'skipped' && !rewrite.stub && (
+        <p className="apparatus factcheck-count">
+          смысловая сверка не проводилась — вторую ступень проверить не удалось
         </p>
       )}
     </section>

@@ -31,6 +31,8 @@ export function openDb(path: string): DatabaseSync {
       anchor_count INTEGER NOT NULL,
       attempts INTEGER NOT NULL,
       unchanged INTEGER NOT NULL,
+      review TEXT NOT NULL,
+      contradiction TEXT NOT NULL,
       PRIMARY KEY (link, mood)
     )
   `)
@@ -92,6 +94,8 @@ type RewriteRow = {
   anchor_count: number
   attempts: number
   unchanged: number
+  review: string
+  contradiction: string
 }
 
 // Чтение Rewrite из кэша. Данные наши же, записанные insertRewrite ниже, поэтому
@@ -103,7 +107,7 @@ export function getRewrite(
 ): Rewrite | undefined {
   const row = db
     .prepare(
-      `SELECT mood, title, body, anchors, missing, anchor_count, attempts, unchanged
+      `SELECT mood, title, body, anchors, missing, anchor_count, attempts, unchanged, review, contradiction
        FROM rewrites WHERE link = ? AND mood = ?`,
     )
     .get(link, mood) as RewriteRow | undefined
@@ -118,6 +122,8 @@ export function getRewrite(
     attempts: row.attempts,
     stub: false, // в кэш попадает только настоящий Rewrite (см. resolveRewrite)
     unchanged: row.unchanged !== 0,
+    review: row.review as Rewrite['review'],
+    contradiction: row.contradiction,
   }
 }
 
@@ -131,8 +137,8 @@ export function insertRewrite(
 ): void {
   db.prepare(
     `INSERT OR IGNORE INTO rewrites
-       (link, mood, title, body, anchors, missing, anchor_count, attempts, unchanged)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (link, mood, title, body, anchors, missing, anchor_count, attempts, unchanged, review, contradiction)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     link,
     mood,
@@ -143,5 +149,7 @@ export function insertRewrite(
     rewrite.anchorCount,
     rewrite.attempts,
     rewrite.unchanged ? 1 : 0,
+    rewrite.review,
+    rewrite.contradiction,
   )
 }

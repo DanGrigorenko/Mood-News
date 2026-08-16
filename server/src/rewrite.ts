@@ -2,7 +2,12 @@ import { z } from 'zod'
 import type { DatabaseSync } from 'node:sqlite'
 import { extractAnchors, factCheck, anchorSchema, type Anchor } from './anchor.ts'
 import { moodSchema, type Mood } from './mood.ts'
-import { buildMessages, type ModelCall } from './llm.ts'
+import {
+  buildMessages,
+  buildReviewMessages,
+  type ModelCall,
+  type ReviewCall,
+} from './llm.ts'
 import type { Article } from './rss.ts'
 import { getRewrite, insertRewrite } from './db.ts'
 
@@ -23,6 +28,15 @@ export const rewriteSchema = z.object({
   // читателю (docs/adr/0003, issue #8). Для Mood neutral всегда false: сухой
   // пересказ вправе совпасть с источником.
   unchanged: z.boolean(),
+  // Второй проход — смысловая сверка Rewrite с источником (docs/adr/0005,
+  // issue #10): passed — противоречий нет; failed — найдено неустранённое
+  // противоречие (см. contradiction); skipped — сверка не отработала (нет ключа,
+  // сбой, не-JSON от судьи). skipped честно означает «не проверено», а не
+  // «пройдено».
+  review: z.enum(['passed', 'failed', 'skipped']),
+  // Название найденного противоречия — непустое только при review === 'failed'.
+  // Показывается читателю рядом с Fact Check (docs/adr/0003).
+  contradiction: z.string(),
 })
 export type Rewrite = z.infer<typeof rewriteSchema>
 
@@ -59,23 +73,30 @@ function matchesSnippet(title: string, body: string, article: Article): boolean 
   )
 }
 
-// Цикл: сгенерировать → Fact Check → если есть Missing Anchor или текст дословно
-// совпал со Snippet, повторить, назвав причину, до MAX_ATTEMPTS попыток. Если
-// после всех попыток потери остались или текст так и не изменился — Rewrite всё
-// равно возвращается с честной пометкой (не 500, не откат на Snippet,
-// docs/adr/0003, issue #8). Невалидный JSON (callModel вернул null) — ещё одна
-// неудачная попытка. Mood neutral от отличия не требуется: сухой пересказ вправе
+// Цикл: сгенерировать → Fact Check → смысловая сверка. Если есть Missing Anchor
+// или текст дословно совпал со Snippet — повторить, назвав причину. Только после
+// того как Anchor-сверка пройдена, запускается второй проход (docs/adr/0005):
+// модель сверяет Rewrite с источником; найденное противоречие — тоже неудачная
+// попытка, оно называется в ретрае. Всё до MAX_ATTEMPTS попыток. Если после всех
+// попыток потери, совпадение или противоречие остались — Rewrite всё равно
+// возвращается с честной пометкой (не 500, не откат на Snippet, docs/adr/0003).
+// Невалидный JSON (callModel вернул null) — ещё одна неудачная попытка. Сбой
+// второго прохода не роняет запрос: Anchor-валидный Rewrite отдаётся с пометкой
+// review:'skipped'. Mood neutral от отличия не требуется: сухой пересказ вправе
 // совпасть с источником.
 export async function generateRewrite(
   article: Article,
   mood: Mood,
   callModel: ModelCall,
+  reviewModel: ReviewCall,
 ): Promise<Rewrite> {
   const anchors = anchorsOf(article)
   const mustDiffer = mood !== 'neutral'
   let last: { title: string; body: string } | null = null
   let missing: Anchor[] = []
   let unchanged = false
+  let contradiction = ''
+  let review: Rewrite['review'] = 'skipped'
   let attempts = 0
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
@@ -86,6 +107,7 @@ export async function generateRewrite(
       anchors,
       missing,
       unchanged,
+      contradiction,
     })
     const out = await callModel(messages)
     attempts++
@@ -93,7 +115,33 @@ export async function generateRewrite(
     last = out
     missing = missingIn(out.title, out.body, anchors)
     unchanged = mustDiffer && matchesSnippet(out.title, out.body, article)
-    if (missing.length === 0 && !unchanged) break
+    if (missing.length > 0 || unchanged) continue // Anchor-сверка не пройдена — ретрай
+
+    // Anchor-сверка пройдена → второй проход: смысловая сверка (docs/adr/0005).
+    // Сбой запроса и не-JSON от судьи трактуются одинаково: сверка ответа не
+    // дала. Не роняем запрос — отдаём Anchor-валидный Rewrite, честно помечая
+    // сверку непройденной (skipped), а не выдавая её за пройденную.
+    let verdict
+    try {
+      verdict = await reviewModel(
+        buildReviewMessages({ title: article.title, announce: article.announce, rewrite: out }),
+      )
+    } catch {
+      verdict = null
+    }
+    if (verdict === null) {
+      review = 'skipped'
+      contradiction = ''
+      break
+    }
+    if (verdict.consistent) {
+      review = 'passed'
+      contradiction = ''
+      break
+    }
+    // Противоречие — ещё одна неудачная попытка, названная в следующем ретрае.
+    review = 'failed'
+    contradiction = verdict.contradiction.trim() || 'смысл искажён относительно источника'
   }
 
   if (last === null) {
@@ -110,6 +158,8 @@ export async function generateRewrite(
     attempts,
     stub: false, // модель вызывалась — это настоящий Rewrite
     unchanged,
+    review,
+    contradiction,
   }
 }
 
@@ -131,11 +181,17 @@ export function stubRewrite(article: Article, mood: Mood): Rewrite {
     // Заглушка честно совпадает со Snippet, но об этом говорит её собственная
     // пометка stub:true — вторую («unchanged») на неё не вешаем (issue #8).
     unchanged: false,
+    // Модель не вызывалась — второй проход тоже: сверка не проведена, а не
+    // пройдена (docs/adr/0005).
+    review: 'skipped',
+    contradiction: '',
   }
 }
 
 export type RewriteDeps = {
   callModel: ModelCall
+  // Второй проход — смысловая сверка Rewrite с источником (docs/adr/0005).
+  reviewModel: ReviewCall
   // Без LLM_API_KEY отдаём заглушку вместо обращения к модели.
   useStub: boolean
 }
@@ -154,7 +210,7 @@ export async function resolveRewrite(
 
   const rewrite = deps.useStub
     ? stubRewrite(article, mood)
-    : await generateRewrite(article, mood, deps.callModel)
+    : await generateRewrite(article, mood, deps.callModel, deps.reviewModel)
 
   if (!rewrite.stub) insertRewrite(db, article.link, mood, rewrite)
   return rewrite

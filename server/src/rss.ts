@@ -64,22 +64,20 @@ export function parseFeed(xml: string, source: string): Article[] {
 
 type RawItem = Record<string, unknown>
 
+// Безопасный доступ к вложенному объекту: не объект (или null) — undefined.
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
 function extractItems(parsed: unknown): RawItem[] {
-  if (typeof parsed !== 'object' || parsed === null) return []
-  const channel = (parsed as Record<string, unknown>).rss
-  const inner =
-    typeof channel === 'object' && channel !== null
-      ? (channel as Record<string, unknown>).channel
-      : undefined
-  const item =
-    typeof inner === 'object' && inner !== null
-      ? (inner as Record<string, unknown>).item
-      : undefined
+  const item = asObject(asObject(asObject(parsed)?.rss)?.channel)?.item
   if (Array.isArray(item)) return item.filter(isRawItem)
   if (isRawItem(item)) return [item]
   return []
 }
 
 function isRawItem(value: unknown): value is RawItem {
-  return typeof value === 'object' && value !== null
+  return asObject(value) !== undefined
 }

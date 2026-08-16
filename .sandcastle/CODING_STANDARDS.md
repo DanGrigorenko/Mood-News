@@ -1,27 +1,21 @@
 # Coding Standards
 
-<!-- Customize this file with your project's coding standards.
-     The reviewer agent loads it during code review via @.sandcastle/CODING_STANDARDS.md
-     so these standards are enforced during review without costing tokens during implementation. -->
-
 ## Style
 
-<!-- Example:
-- Use camelCase for variables and functions
-- Use PascalCase for classes and types
-- Prefer named exports over default exports
--->
+- TypeScript везде, `strict: true`. Никаких `any` в сигнатурах.
+- Именованные экспорты, без `default`.
+- Валидация внешних данных (RSS, ответ модели, query-параметры) — через zod, он уже в зависимостях.
+- Доменные имена — строго из `CONTEXT.md`: Article, Snippet, Mood, Rewrite, Anchor, Fact Check, Missing Anchor. Синонимы из списка `_Avoid_` в коде не появляются.
 
 ## Testing
 
-<!-- Example:
-- Every public function must have at least one test
-- Use descriptive test names that explain the expected behavior
--->
+- Раннер — встроенный `node:test`. Не добавлять Vitest, Jest и прочие фреймворки.
+- Тесты требуются для доменной логики (извлечение Anchor, сверка, ретраи). HTTP-обвязка и SELECT-ы тестами не покрываются.
+- Тест не ходит в сеть, не требует ключа LLM и не зависит от порядка запуска.
 
 ## Architecture
 
-<!-- Example:
-- Keep modules focused on a single responsibility
-- Prefer composition over inheritance
--->
+- Без ORM и без миграций: SQLite, схема одним `CREATE TABLE IF NOT EXISTS` при старте.
+- Никаких абстракций с одной реализацией: интерфейс появляется тогда, когда за ним стоит вторая реализация, а не «на будущее».
+- Решения в `docs/adr/` обязательны к исполнению. Если код им противоречит — это не «улучшение», а повод сначала обсудить ADR.
+- Новую зависимость добавлять, только если она заменяет заметный объём кода. Стандартная библиотека Node 22 и уже установленные пакеты — первый выбор.

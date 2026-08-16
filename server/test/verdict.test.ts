@@ -6,9 +6,9 @@ import {
   accepted,
   fitForCache,
   anchorsPassed,
-  UNCHANGED_SIMILARITY_THRESHOLD,
   type MeaningCheck,
 } from '../src/verdict.ts'
+import { UNCHANGED_SIMILARITY_THRESHOLD } from '../src/similarity.ts'
 import type { Anchor } from '../src/anchor.ts'
 
 const lost: Anchor[] = [{ kind: 'number', text: '15%' }]

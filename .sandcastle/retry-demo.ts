@@ -7,10 +7,13 @@
 // Check это ловит, во второй — по указанию из промпта возвращает его.
 //
 // Запуск: node .sandcastle/retry-demo.ts
-import { extractAnchors, factCheck } from '../server/src/anchor.ts'
+import { extractAnchors, factCheck, type Anchor } from '../server/src/anchor.ts'
 import { generateRewrite } from '../server/src/rewrite.ts'
 import type { ChatMessage, ModelOutput } from '../server/src/llm.ts'
 import type { Article } from '../server/src/rss.ts'
+
+// Anchor в кавычках-ёлочках через запятую — формат вывода этого прогона.
+const quoted = (list: Anchor[]) => list.map((a) => `«${a.text}»`).join(', ')
 
 // Реальная новость из ленты Коммерсанта (Ingest 2026-08-16).
 const article: Article = {
@@ -47,7 +50,7 @@ const scriptedModel = async (messages: ChatMessage[]): Promise<ModelOutput> => {
   const verdict =
     fc.missing.length === 0
       ? 'все Anchor на месте → успех'
-      : `потеряно ${fc.missing.map((a) => `«${a.text}»`).join(', ')} → ретрай`
+      : `потеряно ${quoted(fc.missing)} → ретрай`
   console.log(
     `попытка ${attempt}${isRetry ? ' (промпт требует вернуть потерянное)' : ''}:`,
   )
@@ -57,11 +60,11 @@ const scriptedModel = async (messages: ChatMessage[]): Promise<ModelOutput> => {
 }
 
 console.log(`Article: ${article.link}`)
-console.log(`Anchor (${anchors.length}): ${anchors.map((a) => `«${a.text}»`).join(', ')}\n`)
+console.log(`Anchor (${anchors.length}): ${quoted(anchors)}\n`)
 
 const rewrite = await generateRewrite(article, 'dramatic', scriptedModel)
 
 console.log(
   `\nИтог: attempts=${rewrite.attempts}, anchorCount=${rewrite.anchorCount}, ` +
-    `missing=${rewrite.missing.length === 0 ? '[]' : rewrite.missing.map((a) => `«${a.text}»`).join(', ')}`,
+    `missing=${rewrite.missing.length === 0 ? '[]' : quoted(rewrite.missing)}`,
 )

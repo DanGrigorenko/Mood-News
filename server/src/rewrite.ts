@@ -6,7 +6,7 @@ import { type Mood } from './mood.ts'
 // чтобы прежние импортёры (db, тесты, eval) не переезжали.
 import { rewriteSchema, rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
 export { rewriteSchema, rewriteResponseSchema, type Rewrite }
-import type { ModelCall, MeaningCheckCall } from './llm.ts'
+import type { ModelCall, MeaningCheckCall, ModelOutput } from './llm.ts'
 import type { RewriteFeedback } from './prompt.ts'
 import type { Article } from './rss.ts'
 import { getRewrite, insertRewrite } from './db.ts'
@@ -66,6 +66,40 @@ function betterAttempt(a: Attempt, b: Attempt): Attempt {
   return betterVerdict(a.verdict, b.verdict) === a.verdict ? a : b
 }
 
+// Накопитель обратной связи Brief: то самое «что сверки узнали за прошлую
+// попытку», за своим interface, а не разбросанное по let-переменным async-цикла
+// (issue #33). Держит RewriteFeedback между попытками; next() отдаёт его
+// следующей попытке, record() запоминает вердикт очередной попытки. До первого
+// record() обратной связи ещё нет (первая попытка вслепую, docs/adr/0009), и
+// null-попытка (невалидный JSON) её не трогает: цикл просто не зовёт record().
+export type FeedbackAccumulator = {
+  next(): RewriteFeedback | undefined
+  record(out: ModelOutput, verdict: Verdict): void
+}
+
+export function feedbackAccumulator(article: Article): FeedbackAccumulator {
+  let feedback: RewriteFeedback | undefined = undefined
+  return {
+    next: () => feedback,
+    record(out, verdict) {
+      // missing, unchanged и surviving берём от этой попытки; distortion
+      // обновляем только когда Meaning Check отработал (anchorsPassed) — иначе
+      // Anchor-провал затёр бы имя искажения, которое следующий ретрай ещё несёт.
+      feedback = {
+        missing: verdict.missing,
+        unchanged: verdict.unchanged,
+        surviving: verdict.unchanged
+          ? survivingFragments(
+              `${out.title}\n${out.body}`,
+              `${article.title}\n${article.announce}`,
+            )
+          : [],
+        distortion: anchorsPassed(verdict) ? verdict.distortion : (feedback?.distortion ?? ''),
+      }
+    },
+  }
+}
+
 // Цикл: сгенерировать → Fact Check → Meaning Check. Если есть Missing Anchor
 // или текст дословно совпал со Snippet — повторить, назвав причину. Только после
 // того как Anchor-сверка пройдена, запускается Meaning Check (docs/adr/0005):
@@ -86,24 +120,19 @@ export async function generateRewrite(
   meaningCheckModel: MeaningCheckCall,
 ): Promise<Rewrite> {
   const anchors = anchorsOf(article)
+  // Обратная связь между попытками — за своим interface (issue #33): первая
+  // попытка идёт без неё (docs/adr/0009), ретрай несёт накопленное состояние
+  // сверок как Brief в терминах домена. Цикл его не разбирает по полям.
+  const feedback = feedbackAccumulator(article)
   let best: Attempt | null = null
-  let missing: Anchor[] = []
-  let unchanged = false
-  let surviving: string[] = []
-  let distortion = ''
   let attempts = 0
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    // Первая попытка идёт без обратной связи — это и есть её отличие от ретрая
-    // (docs/adr/0009): перечень Anchor не диктуется, потому что feedback ещё нет.
-    // Ретрай несёт накопленное состояние сверок как Brief в терминах домена.
-    const feedback: RewriteFeedback | undefined =
-      i === 0 ? undefined : { missing, unchanged, surviving, distortion }
     const out = await callModel({
       mood,
       title: article.title,
       announce: article.announce,
-      feedback,
+      feedback: feedback.next(),
     })
     attempts++
     if (out === null) continue // невалидный JSON — ещё одна неудачная попытка
@@ -145,19 +174,8 @@ export async function generateRewrite(
     best = best === null ? attempt : betterAttempt(attempt, best)
     if (accepted(verdict)) break // вердикт годен — ретрай не нужен
 
-    // Не принято — готовим прицельный ретрай, называя причину неудачи. missing,
-    // unchanged и surviving берём от этой попытки; distortion обновляем только
-    // когда Meaning Check отработал (anchorsPassed) — иначе Anchor-провал затёр бы
-    // имя искажения, которое следующий ретрай ещё несёт модели.
-    missing = verdict.missing
-    unchanged = verdict.unchanged
-    surviving = unchanged
-      ? survivingFragments(
-          `${out.title}\n${out.body}`,
-          `${article.title}\n${article.announce}`,
-        )
-      : []
-    if (anchorsPassed(verdict)) distortion = verdict.distortion
+    // Не принято — накопитель запоминает причину неудачи для прицельного ретрая.
+    feedback.record(out, verdict)
   }
 
   if (best === null) {

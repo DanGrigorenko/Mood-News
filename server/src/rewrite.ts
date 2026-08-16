@@ -6,12 +6,8 @@ import { type Mood } from './mood.ts'
 // чтобы прежние импортёры (db, тесты, eval) не переезжали.
 import { rewriteSchema, rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
 export { rewriteSchema, rewriteResponseSchema, type Rewrite }
-import {
-  buildMessages,
-  buildMeaningCheckMessages,
-  type ModelCall,
-  type MeaningCheckCall,
-} from './llm.ts'
+import type { ModelCall, MeaningCheckCall } from './llm.ts'
+import type { RewriteFeedback } from './prompt.ts'
 import type { Article } from './rss.ts'
 import { getRewrite, insertRewrite } from './db.ts'
 import {
@@ -180,16 +176,17 @@ export async function generateRewrite(
   let attempts = 0
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    const messages = buildMessages({
+    // Первая попытка идёт без обратной связи — это и есть её отличие от ретрая
+    // (docs/adr/0009): перечень Anchor не диктуется, потому что feedback ещё нет.
+    // Ретрай несёт накопленное состояние сверок как Brief в терминах домена.
+    const feedback: RewriteFeedback | undefined =
+      i === 0 ? undefined : { missing, unchanged, surviving, distortion }
+    const out = await callModel({
       mood,
       title: article.title,
       announce: article.announce,
-      missing,
-      unchanged,
-      surviving,
-      distortion,
+      feedback,
     })
-    const out = await callModel(messages)
     attempts++
     if (out === null) continue // невалидный JSON — ещё одна неудачная попытка
 
@@ -209,9 +206,11 @@ export async function generateRewrite(
     if (anchorsPassed(verdict)) {
       let review
       try {
-        review = await meaningCheckModel(
-          buildMeaningCheckMessages({ title: article.title, announce: article.announce, rewrite: out }),
-        )
+        review = await meaningCheckModel({
+          title: article.title,
+          announce: article.announce,
+          rewrite: out,
+        })
       } catch {
         review = null
       }

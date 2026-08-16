@@ -44,6 +44,36 @@ test('имя собственное в середине предложения �
   assert.deepEqual(names, ['Путин']) // «Об» в начале строки отброшено, «Путин» взят
 })
 
+test('содержимое кавычек очищается от краевых и внутренних лишних пробелов', () => {
+  // Snippet собирается из склейки «заголовок\nтело» и полного текста страницы:
+  // цитата легко получает перенос строки или задвоенный пробел. Дословная
+  // сверка требует, чтобы Anchor совпал с прозой Rewrite — а модель пишет
+  // одиночными пробелами. Нормализуем: края обрезаем, внутренние прогоны в один
+  // пробел (issue #15).
+  const anchors = extractAnchors('Он сказал: «  рост\nнеизбежен  » сегодня.')
+  const quotes = anchors.filter((a) => a.kind === 'quote').map((a) => a.text)
+  assert.deepEqual(quotes, ['рост неизбежен'])
+})
+
+test('заглавное слово сразу после открывающей кавычки — не имя', () => {
+  // Первое слово цитаты заглавно по правилу кавычек, а не потому что имя.
+  // Кавычка не закрыта — quote-Anchor не извлекается, но «Компания» после «
+  // всё равно не имя собственное (issue #15).
+  const anchors = extractAnchors('Источник сообщил: «Компания уходит с рынка')
+  const names = anchors.filter((a) => a.kind === 'name').map((a) => a.text)
+  assert.deepEqual(names, [])
+})
+
+test('имя внутри цитаты не дублируется отдельным name-Anchor', () => {
+  // Имя внутри кавычек уже защищено quote-Anchor (цитата хранится дословно):
+  // отдельный name-Anchor на него — дубль-подстрока (issue #15).
+  const anchors = extractAnchors('Депутат отметил, что «поддержку получит Сибирь целиком».')
+  const quotes = anchors.filter((a) => a.kind === 'quote').map((a) => a.text)
+  const names = anchors.filter((a) => a.kind === 'name').map((a) => a.text)
+  assert.deepEqual(quotes, ['поддержку получит Сибирь целиком'])
+  assert.deepEqual(names, [])
+})
+
 test('одинаковые Anchor не дублируются', () => {
   const anchors = extractAnchors('В 2024 году, снова в 2024 году.')
   const numbers = anchors.filter((a) => a.kind === 'number').map((a) => a.text)

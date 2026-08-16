@@ -16,7 +16,6 @@ import {
   accepted,
   anchorsPassed,
   fitForCache,
-  UNCHANGED_SIMILARITY_THRESHOLD,
   type MeaningCheck,
   type Verdict,
 } from './verdict.ts'

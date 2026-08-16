@@ -696,6 +696,33 @@ test('сгенерированный Rewrite переживает перезап
   }
 })
 
+// --- Валидация записи кэша на чтении ---
+
+test('устаревшая запись кэша (не проходит схему Rewrite) читается как промах', () => {
+  const db = openDb(':memory:')
+  insertArticles(db, [article])
+  // Прямая запись строки, валидной как JSON, но не проходящей rewriteSchema:
+  // так выглядела бы запись, оставшаяся от прежней формы Rewrite. На чтении она
+  // должна обнаружиться и не доехать до экрана — getRewrite отдаёт промах.
+  db.prepare('INSERT INTO rewrites (link, mood, data) VALUES (?, ?, ?)').run(
+    article.link,
+    'joyful',
+    JSON.stringify({ mood: 'joyful', title: 'заголовок' }), // не хватает полей
+  )
+  assert.equal(getRewrite(db, article.link, 'joyful'), undefined)
+})
+
+test('битый JSON в кэше читается как промах, а не роняет чтение', () => {
+  const db = openDb(':memory:')
+  insertArticles(db, [article])
+  db.prepare('INSERT INTO rewrites (link, mood, data) VALUES (?, ?, ?)').run(
+    article.link,
+    'sad',
+    '{ это не json',
+  )
+  assert.equal(getRewrite(db, article.link, 'sad'), undefined)
+})
+
 // --- Промпт и тело запроса (детали, на которых легко потерять время) ---
 
 test('первая попытка держит регистр и правило «цифрами, а не прописью»', () => {

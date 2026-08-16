@@ -3,7 +3,7 @@ import { extractAnchors, factCheck } from './anchor.ts'
 // Форма Rewrite, Article, Anchor и Mood — часть общего контракта API: описаны
 // один раз в shared/api.mts, оттуда их берут и сервер (генерация, кэш), и фронт
 // (разбор ответа).
-import { type Rewrite, type Article, type Anchor, type Mood } from '../../shared/api.mts'
+import type { Rewrite, Article, Anchor, Mood } from '../../shared/api.mts'
 import type { ModelCall, MeaningCheckCall } from './llm.ts'
 import type { ModelOutput } from './parse.ts'
 import type { RewriteFeedback } from './prompt.ts'

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createIssueStore } from '../src/useIssue.ts'
-import { type Article, type IngestResult } from '../src/articles.ts'
+import { type Article, type IngestResult } from '../../shared/api.mts'
 
 function articleAt(link: string): Article {
   return {

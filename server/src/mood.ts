@@ -1,8 +1,7 @@
 // Форма Mood (набор id и схема) описана один раз в общем контракте shared/api.mts
 // и импортируется обеими сторонами. Здесь остаётся серверное представление —
 // человеческие названия и регистры — плюс сборка ответа GET /api/moods.
-import { MOOD_IDS, moodSchema, type Mood, type MoodOption } from '../../shared/api.mts'
-export { MOOD_IDS, moodSchema, type Mood }
+import { MOOD_IDS, type Mood, type MoodOption } from '../../shared/api.mts'
 
 // Человеческие названия Mood: их отдаёт GET /api/moods, чтобы фронт не дублировал
 // список у себя.

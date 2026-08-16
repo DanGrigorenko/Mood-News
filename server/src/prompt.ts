@@ -1,5 +1,5 @@
-import type { Anchor } from './anchor.ts'
-import { type Mood, MOOD_REGISTER } from './mood.ts'
+import { MOOD_REGISTER } from './mood.ts'
+import type { Anchor, Mood } from '../../shared/api.mts'
 
 // Авторство промптов: этот module знает русский текст обращений к модели и НЕ
 // знает про сеть (issue #21, PRD #18). Обращение описывается Brief — в терминах

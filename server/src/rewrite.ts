@@ -1,14 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { extractAnchors, factCheck, type Anchor } from './anchor.ts'
-import { type Mood } from './mood.ts'
-// Форма Rewrite — часть общего контракта API: описана один раз в shared/api.mts,
-// оттуда её берут и сервер (генерация, кэш), и фронт (разбор ответа). Реэкспорт —
-// чтобы прежние импортёры (db, тесты, eval) не переезжали.
-import { rewriteSchema, rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
-export { rewriteSchema, rewriteResponseSchema, type Rewrite }
-import type { ModelCall, MeaningCheckCall, ModelOutput } from './llm.ts'
+import { extractAnchors, factCheck } from './anchor.ts'
+// Форма Rewrite, Article, Anchor и Mood — часть общего контракта API: описаны
+// один раз в shared/api.mts, оттуда их берут и сервер (генерация, кэш), и фронт
+// (разбор ответа).
+import { type Rewrite, type Article, type Anchor, type Mood } from '../../shared/api.mts'
+import type { ModelCall, MeaningCheckCall } from './llm.ts'
+import type { ModelOutput } from './parse.ts'
 import type { RewriteFeedback } from './prompt.ts'
-import type { Article } from './rss.ts'
 import { getRewrite, insertRewrite } from './db.ts'
 import {
   verdictOf,

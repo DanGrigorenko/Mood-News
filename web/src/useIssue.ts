@@ -1,10 +1,5 @@
-import {
-  fetchArticles,
-  runIngest,
-  formatAdded,
-  type Article,
-  type IngestResult,
-} from './articles.ts'
+import { fetchArticles, runIngest, formatAdded } from './articles.ts'
+import type { Article, IngestResult } from '../../shared/api.mts'
 
 // Состояние Выпуска на фронте: список Article, человеческое уведомление после
 // Ingest, ошибка загрузки и признак «идёт обновление». Ровно то, что показывает

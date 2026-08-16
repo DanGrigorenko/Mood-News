@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import {
   extractAnchors,
   factCheck,
-  anchorSchema,
   factCheckSchema,
 } from '../src/anchor.ts'
+import { anchorSchema } from '../../shared/api.mts'
 
 // --- Извлечение Anchor из Snippet (механически, до всякой модели) ---
 

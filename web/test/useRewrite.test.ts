@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRewriteStore, type RewriteFetch } from '../src/useRewrite.ts'
-import { type Rewrite } from '../src/rewrite.ts'
+import { type Rewrite } from '../../shared/api.mts'
 
 function rewriteFor(mood: Rewrite['mood']): Rewrite {
   return {

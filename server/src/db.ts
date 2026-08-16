@@ -1,7 +1,9 @@
 import { DatabaseSync } from 'node:sqlite'
-import { articleSchema, type Article } from './rss.ts'
-import { rewriteSchema, type Rewrite } from './rewrite.ts'
-import type { Mood } from './mood.ts'
+// Схемы и типы Article, Rewrite и Mood — из общего контракта напрямую
+// (shared/api.mts), а не через парсер RSS или module переписывания: слой
+// хранения хранит форму контракта, поэтому и берёт её у источника. Так граф
+// импортов ацикличен — цикла db → rewrite → db больше нет (issue #27).
+import { articleSchema, rewriteSchema, type Article, type Rewrite, type Mood } from '../../shared/api.mts'
 
 // SQLite файлом, схема одним CREATE TABLE IF NOT EXISTS при старте — без ORM
 // и без миграций (CODING_STANDARDS). Дедупликация Ingest держится на PRIMARY

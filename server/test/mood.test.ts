@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { moodSchema, moodsPayload } from '../src/mood.ts'
-import { moodsResponseSchema } from '../../shared/api.mts'
+import { moodsPayload } from '../src/mood.ts'
+import { moodSchema, moodsResponseSchema } from '../../shared/api.mts'
 
 test('moodsPayload удовлетворяет общей схеме ответа /api/moods', () => {
   // Тот же конверт, которым ответ разбирает фронт (shared/api.mts): расхождение

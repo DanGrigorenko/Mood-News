@@ -6,7 +6,7 @@ import {
   type RewriteFeedback,
 } from '../src/prompt.ts'
 import { MOOD_REGISTER } from '../src/mood.ts'
-import type { Anchor } from '../src/anchor.ts'
+import type { Anchor } from '../../shared/api.mts'
 
 // Prompt-module unit-тесты: как Brief в терминах домена рендерится в сообщения
 // чат-API. Поведение переписывания (какой Brief собирает generateRewrite и что

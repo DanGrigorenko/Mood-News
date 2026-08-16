@@ -2,8 +2,7 @@ import { z } from 'zod'
 // Форма Rewrite (и конверт ответа /api/articles/:id) описана один раз в общем
 // контракте (shared/api.mts) — тем же, по которому сервер её строит. `mood`
 // имеет одну форму на обе стороны: серверный enum, а не свободная строка.
-import { rewriteSchema, rewriteResponseSchema, type Rewrite, type Anchor } from '../../shared/api.mts'
-export { rewriteSchema, rewriteResponseSchema, type Rewrite, type Anchor }
+import { rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
 
 // Бейдж Fact Check: сколько Anchor уцелело из общего числа. Потерянные факты
 // перечисляются отдельно (rewrite.missing) — здесь только сводка.

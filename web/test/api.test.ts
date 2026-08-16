@@ -60,11 +60,12 @@ test('apiFetch передаёт init (метод) в fetch', async () => {
   assert.equal(seen?.method, 'POST')
 })
 
-// Deletion test: три прежних тела «сходить → проверить статус → распарсить»
-// (fetchArticles, runIngest, fetchMoods) больше не ходят в сеть сами — они
-// проходят через apiFetch. Если тело вернётся в эти файлы, тест упадёт.
-test('deletion: articles.ts и moods.ts не вызывают fetch и не проверяют res.ok сами', () => {
-  for (const file of ['articles.ts', 'moods.ts']) {
+// Deletion test: прежние тела «сходить → проверить статус → распарсить»
+// (fetchArticles, runIngest) больше не ходят в сеть сами — они проходят через
+// apiFetch. Список Mood теперь тоже идёт через apiFetch прямо из App (module
+// moods.ts удалён, issue #27). Если тело вернётся в articles.ts, тест упадёт.
+test('deletion: articles.ts не вызывает fetch и не проверяет res.ok сам', () => {
+  for (const file of ['articles.ts']) {
     const src = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')
     assert.doesNotMatch(src, /fetch\(/, `${file} всё ещё вызывает fetch напрямую`)
     assert.doesNotMatch(src, /res\.ok/, `${file} всё ещё проверяет res.ok сам`)

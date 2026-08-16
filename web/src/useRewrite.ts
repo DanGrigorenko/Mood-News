@@ -1,4 +1,5 @@
-import { fetchRewrite, type Rewrite } from './rewrite.ts'
+import { fetchRewrite } from './rewrite.ts'
+import type { Rewrite } from '../../shared/api.mts'
 
 // Состояние Rewrite для пары «Article + Mood»: текущий результат, идёт ли
 // генерация, и ошибка, если модель недоступна. Ровно то, что показывает экран —

@@ -1,11 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { formatPublished, formatShort } from './articles.ts'
+import { factCheckSummary } from './rewrite.ts'
+import { apiFetch } from './api.ts'
 import {
-  formatPublished,
-  formatShort,
+  moodsResponseSchema,
   type Article,
-} from './articles.ts'
-import { fetchMoods, type Mood } from './moods.ts'
-import { factCheckSummary, type Rewrite } from './rewrite.ts'
+  type MoodOption,
+  type Rewrite,
+} from '../../shared/api.mts'
 import { createRewriteStore, type RewriteStore } from './useRewrite.ts'
 import { createIssueStore } from './useIssue.ts'
 import { newsHref, interceptClick, type ClickModifiers } from './address.ts'
@@ -69,7 +71,7 @@ function Retry(props: { onClick: () => void }) {
 // Указания исполнения над строкой. Один и тот же ряд стоит и в выпуске, и на
 // странице новости.
 function Registers(props: {
-  moods: Mood[]
+  moods: MoodOption[]
   selected: string
   onSelect: (id: string) => void
 }) {
@@ -123,7 +125,7 @@ function FactCheck(props: { rewrite: Rewrite }) {
 function Piece(props: {
   article: Article
   index: number
-  moods: Mood[]
+  moods: MoodOption[]
   selected: string
   store: RewriteStore
   onSelect: (id: string) => void
@@ -314,16 +316,18 @@ export function App() {
   // новости: возврат в выпуск размонтирует страницу, но не хранилище, поэтому
   // повторное открытие уже полученной пары показывает Rewrite сразу (issue #32).
   const [rewriteStore] = useState(createRewriteStore)
-  const [moods, setMoods] = useState<Mood[]>([])
+  const [moods, setMoods] = useState<MoodOption[]>([])
   const [moodsError, setMoodsError] = useState<string | null>(null)
   const [selectedMood, setSelectedMood] = useState('neutral')
   const [openLink, go] = useRoute()
 
   // Список Mood — отдельный seam (приходит с сервера, issue #5), не часть выпуска.
+  // Идёт через общий apiFetch с общей схемой контракта (shared/api.mts): своего
+  // module ради alias'а типа и однострочного запроса больше нет (issue #27).
   useEffect(() => {
     void issueStore.load()
-    fetchMoods()
-      .then(setMoods)
+    apiFetch('/api/moods', moodsResponseSchema)
+      .then((res) => setMoods(res.moods))
       .catch((err: unknown) =>
         setMoodsError(err instanceof Error ? err.message : String(err)),
       )

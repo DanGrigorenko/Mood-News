@@ -1,4 +1,4 @@
-import type { Rewrite } from '../src/rewrite.ts'
+import type { Rewrite } from '../../shared/api.mts'
 
 // Планка продакшн-готовности промпта (issue #12). Детерминированные проверки —
 // только абсолют: 50/50 по Missing Anchor и 50/50 по unchanged. От

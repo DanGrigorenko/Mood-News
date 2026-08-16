@@ -1,11 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  factCheckSummary,
-  errorText,
-  rewriteResponseSchema,
-  type Rewrite,
-} from '../src/rewrite.ts'
+import { factCheckSummary, errorText } from '../src/rewrite.ts'
+import { rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
 
 const base: Rewrite = {
   mood: 'joyful',

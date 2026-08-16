@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { MOOD_LABELS, MOOD_IDS } from '../src/mood.ts'
-import { generateRewrite, type Rewrite } from '../src/rewrite.ts'
+import { MOOD_LABELS } from '../src/mood.ts'
+import { generateRewrite } from '../src/rewrite.ts'
 import { unchangedSimilarity } from '../src/similarity.ts'
 import { makeModelCall, makeMeaningCheckCall, httpTransport, hasApiKey, type Transport } from '../src/llm.ts'
-import type { Article } from '../src/rss.ts'
+import { MOOD_IDS, type Article, type Rewrite } from '../../shared/api.mts'
 import { summarize, formatSummary } from './aggregate.ts'
 
 // Раннер eval (issue #12): гоняет замороженный корпус из 10 Snippet во всех пяти

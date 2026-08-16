@@ -3,12 +3,13 @@ import type { DatabaseSync } from 'node:sqlite'
 import { healthPayload } from './health.ts'
 import { listArticles, getArticle } from './db.ts'
 import { ingest } from './ingest.ts'
-import { moodSchema, moodsPayload } from './mood.ts'
+import { moodsPayload } from './mood.ts'
 import { resolveRewrite } from './rewrite.ts'
 import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from './llm.ts'
 import {
   articlesResponseSchema,
   ingestResultSchema,
+  moodSchema,
   moodsResponseSchema,
   rewriteResponseSchema,
 } from '../../shared/api.mts'

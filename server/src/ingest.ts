@@ -6,7 +6,6 @@ import { SOURCES, type Source } from './source.ts'
 import { type IngestResult } from '../../shared/api.mts'
 
 export type Feed = { url: string; source: Source }
-export type { IngestResult }
 
 // Ленты, из которых идёт Ingest, — по одной на Source. Список и url ленты живут
 // в module Source рядом с правилом извлечения (issue #30): здесь FEEDS лишь

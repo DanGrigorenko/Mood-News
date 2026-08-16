@@ -5,18 +5,13 @@ import {
   generateRewrite,
   stubRewrite,
   resolveRewrite,
-  rewriteSchema,
   feedbackAccumulator,
 } from '../src/rewrite.ts'
-import type {
-  ModelCall,
-  ModelOutput,
-  MeaningCheckCall,
-  MeaningCheckOutput,
-} from '../src/llm.ts'
+import type { ModelCall, MeaningCheckCall } from '../src/llm.ts'
+import type { ModelOutput, MeaningCheckOutput } from '../src/parse.ts'
 import type { RewriteBrief } from '../src/prompt.ts'
 import { verdictOf } from '../src/verdict.ts'
-import type { Article } from '../src/rss.ts'
+import { rewriteSchema, type Article } from '../../shared/api.mts'
 
 const article: Article = {
   link: 'https://src.test/1',

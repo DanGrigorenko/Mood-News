@@ -3,7 +3,6 @@ import { XMLParser } from 'fast-xml-parser'
 // Форма Article описана один раз в общем контракте shared/api.mts (ответ API) и
 // оттуда же валидирует ленту при разборе: сущность одна на проводе и в парсере.
 import { articleSchema, type Article } from '../../shared/api.mts'
-export { articleSchema, type Article }
 
 const parser = new XMLParser({ ignoreAttributes: true, trimValues: true })
 

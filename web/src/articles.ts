@@ -1,17 +1,13 @@
 // Форма Article и конверты ответов описаны один раз в общем контракте
-// (shared/api.mts) и импортируются сервером и фронтом. articlesSchema —
-// прежнее имя конверта списка статей, сохранено для импортёров.
+// (shared/api.mts) и импортируются сервером и фронтом напрямую. Здесь остаётся
+// только настоящая логика фронта: запросы списка/Ingest и форматирование.
 import {
-  articleSchema,
   articlesResponseSchema,
   ingestResultSchema,
   type Article,
   type IngestResult,
 } from '../../shared/api.mts'
 import { apiFetch } from './api.ts'
-
-export { articleSchema, type Article, type IngestResult }
-export const articlesSchema = articlesResponseSchema
 
 export async function fetchArticles(): Promise<Article[]> {
   return (await apiFetch('/api/articles', articlesResponseSchema)).articles

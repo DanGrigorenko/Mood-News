@@ -9,7 +9,7 @@ import {
   type MeaningCheck,
 } from '../src/verdict.ts'
 import { UNCHANGED_SIMILARITY_THRESHOLD } from '../src/similarity.ts'
-import type { Anchor } from '../src/anchor.ts'
+import type { Anchor } from '../../shared/api.mts'
 
 const lost: Anchor[] = [{ kind: 'number', text: '15%' }]
 

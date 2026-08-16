@@ -118,20 +118,18 @@ export async function generateRewrite(
     if (missing.length > 0 || unchanged) continue // Anchor-сверка не пройдена — ретрай
 
     // Anchor-сверка пройдена → второй проход: смысловая сверка (docs/adr/0005).
+    // Сбой запроса и не-JSON от судьи трактуются одинаково: сверка ответа не
+    // дала. Не роняем запрос — отдаём Anchor-валидный Rewrite, честно помечая
+    // сверку непройденной (skipped), а не выдавая её за пройденную.
     let verdict
     try {
       verdict = await reviewModel(
         buildReviewMessages({ title: article.title, announce: article.announce, rewrite: out }),
       )
     } catch {
-      // Сбой сверки не роняет запрос: отдаём Anchor-валидный Rewrite, но честно
-      // помечаем, что смысловая сверка не пройдена, а не выдана за пройденную.
-      review = 'skipped'
-      contradiction = ''
-      break
+      verdict = null
     }
     if (verdict === null) {
-      // Судья вернул не-JSON — сверка ответа не дала, честно skipped.
       review = 'skipped'
       contradiction = ''
       break

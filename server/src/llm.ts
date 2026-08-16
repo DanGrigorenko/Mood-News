@@ -192,70 +192,53 @@ export function hasApiKey(): boolean {
 
 const REQUEST_TIMEOUT_MS = 30_000
 
+// Общая HTTP-обвязка обоих вызовов: POST на /chat/completions и разбор ответа до
+// content первого choice. label подставляется в текст ошибок («модель
+// недоступна», «смысловая сверка ответила 500») — оба существительных женского
+// рода, поэтому формулировки согласуются. Недоступность, таймаут и не-2xx бросают
+// Error; иначе возвращается сырой content для разбора вызывающим.
+async function fetchChatContent(messages: ChatMessage[], label: string): Promise<string> {
+  const { baseUrl, model, apiKey } = llmConfig()
+
+  let res: Response
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(buildRequestBody(messages, model)),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    throw new Error(`${label} недоступна: ${reason}`)
+  }
+
+  if (!res.ok) {
+    throw new Error(`${label} ответила ${res.status}`)
+  }
+
+  const parsed = chatResponseSchema.safeParse(await res.json())
+  if (!parsed.success) {
+    throw new Error(`${label} вернула ответ неожиданной формы`)
+  }
+  return parsed.data.choices[0]!.message.content
+}
+
 // Реальный вызов модели по HTTP. Недоступность, таймаут и не-2xx бросают
 // Error с внятным текстом; не-JSON content возвращает null (неудачная попытка).
 export async function callModelOverHttp(messages: ChatMessage[]): Promise<ModelOutput | null> {
-  const { baseUrl, model, apiKey } = llmConfig()
-
-  let res: Response
-  try {
-    res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(buildRequestBody(messages, model)),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new Error(`модель недоступна: ${reason}`)
-  }
-
-  if (!res.ok) {
-    throw new Error(`модель ответила ${res.status}`)
-  }
-
-  const parsed = chatResponseSchema.safeParse(await res.json())
-  if (!parsed.success) {
-    throw new Error('модель вернула ответ неожиданной формы')
-  }
-  return parseModelContent(parsed.data.choices[0]!.message.content)
+  return parseModelContent(await fetchChatContent(messages, 'модель'))
 }
 
 // Реальный вызов судьи второго прохода по HTTP. Та же обвязка, что и у
-// callModelOverHttp: недоступность, таймаут и не-2xx бросают Error; не-JSON
-// content возвращает null. Бросок наверху ловится generateRewrite и превращается
-// в честную пометку «сверка не проведена» — запрос при этом не падает целиком.
+// callModelOverHttp; не-JSON content возвращает null. Бросок наверху ловится
+// generateRewrite и превращается в честную пометку «сверка не проведена» —
+// запрос при этом не падает целиком.
 export async function callReviewOverHttp(
   messages: ChatMessage[],
 ): Promise<ReviewOutput | null> {
-  const { baseUrl, model, apiKey } = llmConfig()
-
-  let res: Response
-  try {
-    res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(buildRequestBody(messages, model)),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    })
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new Error(`смысловая сверка недоступна: ${reason}`)
-  }
-
-  if (!res.ok) {
-    throw new Error(`смысловая сверка ответила ${res.status}`)
-  }
-
-  const parsed = chatResponseSchema.safeParse(await res.json())
-  if (!parsed.success) {
-    throw new Error('смысловая сверка вернула ответ неожиданной формы')
-  }
-  return parseReviewContent(parsed.data.choices[0]!.message.content)
+  return parseReviewContent(await fetchChatContent(messages, 'смысловая сверка'))
 }

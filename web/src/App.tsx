@@ -1,13 +1,5 @@
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import {
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type MouseEvent,
-} from 'react'
-import {
-  fetchArticles,
-  runIngest,
-  formatAdded,
   formatPublished,
   formatShort,
   type Article,
@@ -15,6 +7,8 @@ import {
 import { fetchMoods, type Mood } from './moods.ts'
 import { factCheckSummary, type Rewrite } from './rewrite.ts'
 import { createRewriteStore, type RewriteStore } from './useRewrite.ts'
+import { createIssueStore } from './useIssue.ts'
+import { newsHref, interceptClick } from './address.ts'
 import { useRoute } from './route.ts'
 import { AnchorMark, ArrowBack, ArrowOut, Brace } from './notation.tsx'
 
@@ -33,18 +27,14 @@ const REGISTER_TERM: Record<string, string> = {
 const PAGE = 30
 
 // У каждой новости свой адрес, поэтому переходы — настоящие ссылки: их можно
-// открыть в новой вкладке, скопировать и увидеть в статусной строке. Клик
-// перехватываем только для обычного левого клика без модификаторов.
-function hrefFor(link: string): string {
-  return `?n=${encodeURIComponent(link)}`
-}
-
-function navigate(
-  event: MouseEvent<HTMLAnchorElement>,
+// открыть в новой вкладке, скопировать и увидеть в статусной строке. Формат
+// адреса и правило «перехватываем ли клик» живут в address.ts (issue #31).
+function onNavigate(
+  event: { preventDefault: () => void } & Parameters<typeof interceptClick>[0],
   link: string,
   go: (link: string) => void,
 ) {
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  if (!interceptClick(event)) return
   event.preventDefault()
   go(link)
 }
@@ -238,8 +228,8 @@ function Lead(props: { article: Article; onOpen: (link: string) => void }) {
   return (
     <a
       className="lead"
-      href={hrefFor(article.link)}
-      onClick={(e) => navigate(e, article.link, props.onOpen)}
+      href={newsHref(article.link)}
+      onClick={(e) => onNavigate(e, article.link, props.onOpen)}
     >
       <span className="lead-head">
         <span className="mark">№ 1</span>
@@ -283,8 +273,8 @@ function Issue(props: {
               <a
                 key={article.link}
                 className={i < 3 ? 'entry rank-major' : 'entry rank-minor'}
-                href={hrefFor(article.link)}
-                onClick={(e) => navigate(e, article.link, props.onOpen)}
+                href={newsHref(article.link)}
+                onClick={(e) => onNavigate(e, article.link, props.onOpen)}
               >
                 <span className="entry-clef apparatus">
                   <span>№ {i + 2}</span>
@@ -315,53 +305,34 @@ function Issue(props: {
 }
 
 export function App() {
-  const [articles, setArticles] = useState<Article[]>([])
-  const [moods, setMoods] = useState<Mood[]>([])
-  const [selectedMood, setSelectedMood] = useState('neutral')
+  // Состояние Выпуска (список Article, уведомление, ошибка, идёт ли обновление) и
+  // его переходы (загрузка, «Обновить») живут в хранилище Выпуска, проверяемом
+  // без React и без DOM (issue #31). Корень — тонкая подписка на него.
+  const [issueStore] = useState(createIssueStore)
+  const issue = useSyncExternalStore(issueStore.subscribe, issueStore.getState)
   // Хранилище Rewrite живёт на уровне выбранного Mood, а не внутри страницы
   // новости: возврат в выпуск размонтирует страницу, но не хранилище, поэтому
   // повторное открытие уже полученной пары показывает Rewrite сразу (issue #32).
   const [rewriteStore] = useState(createRewriteStore)
-  const [error, setError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [moods, setMoods] = useState<Mood[]>([])
+  const [moodsError, setMoodsError] = useState<string | null>(null)
+  const [selectedMood, setSelectedMood] = useState('neutral')
   const [openLink, go] = useRoute()
 
-  async function load() {
-    try {
-      setArticles(await fetchArticles())
-      setError(null)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
+  // Список Mood — отдельный seam (приходит с сервера, issue #5), не часть выпуска.
   useEffect(() => {
-    void load()
+    void issueStore.load()
     fetchMoods()
       .then(setMoods)
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
+        setMoodsError(err instanceof Error ? err.message : String(err)),
       )
-  }, [])
+  }, [issueStore])
 
-  async function refresh() {
-    setRefreshing(true)
-    setNotice(null)
-    try {
-      const { added, skipped } = await runIngest()
-      setNotice(formatAdded(added, skipped))
-      await load()
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
-  const openIndex = articles.findIndex((a) => a.link === openLink)
-  const open = openIndex === -1 ? null : articles[openIndex]
+  const openIndex = issue.articles.findIndex((a) => a.link === openLink)
+  const open = openIndex === -1 ? null : issue.articles[openIndex]
   const currentTerm = REGISTER_TERM[selectedMood] ?? ''
+  const error = issue.error ?? moodsError
 
   return (
     <main className="sheet">
@@ -385,28 +356,28 @@ export function App() {
           </div>
           <button
             className="refresh"
-            onClick={() => void refresh()}
-            disabled={refreshing}
+            onClick={() => void issueStore.refresh()}
+            disabled={issue.refreshing}
           >
-            {refreshing ? 'Забираю…' : 'Обновить'}
+            {issue.refreshing ? 'Забираю…' : 'Обновить'}
           </button>
         </div>
         <div className="double-barline" />
       </header>
 
-      {notice !== null && <p className="notice">{notice}</p>}
+      {issue.notice !== null && <p className="notice">{issue.notice}</p>}
       {error !== null && (
         <p className="editorial editorial-alert">ошибка: {error}</p>
       )}
 
-      {openLink !== null && open === null && articles.length > 0 && (
+      {openLink !== null && open === null && issue.articles.length > 0 && (
         <p className="editorial editorial-alert">
           такой новости в выпуске нет — возможно, она уже ушла из ленты
         </p>
       )}
 
       {open === null ? (
-        <Issue articles={articles} onOpen={(link) => go(link)} />
+        <Issue articles={issue.articles} onOpen={(link) => go(link)} />
       ) : (
         <Piece
           article={open}

@@ -1,9 +1,9 @@
 import { XMLParser } from 'fast-xml-parser'
 import { z } from 'zod'
 
-// Article в том виде, в каком его отдал Source: Snippet (title + announce),
-// ссылка на оригинал и дата публикации. Полный текст не забираем — см.
-// docs/adr/0004-snippet-only-no-page-scraping.md.
+// Article в том виде, в каком его отдала лента: title, ссылка, дата и announce
+// из RSS (короткий анонс). Полный текст статьи Ingest забирает со страницы уже
+// после parseFeed и кладёт в announce вместо анонса (docs/adr/0006, ingest.ts).
 export const articleSchema = z.object({
   link: z.string().url(),
   source: z.string(),

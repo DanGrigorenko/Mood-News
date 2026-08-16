@@ -13,8 +13,10 @@ const db = openDb(dbPath)
 // serve, чтобы грид в свежем клоне был непустым с первого запроса.
 if (countArticles(db) === 0) {
   console.log('База пуста — запускаю стартовый Ingest…')
-  const { added } = await ingest(db)
-  console.log(`Стартовый Ingest добавил новостей: ${added}`)
+  // Ingest теперь ходит на страницу каждой новости и потому заметно дольше —
+  // сообщаем ход работы, чтобы старт не выглядел зависшим (issue #11).
+  const { added, skipped } = await ingest(db, { onProgress: (m) => console.log(m) })
+  console.log(`Стартовый Ingest добавил новостей: ${added} (пропущено ${skipped})`)
 }
 
 const app = createApp(db)

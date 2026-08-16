@@ -49,7 +49,7 @@ export function createApp(db: DatabaseSync): Hono {
   })
 
   // Кнопка «Обновить»: повторный Ingest, отвечаем числом добавленных и
-  // отброшенных (пустой анонс) новостей.
+  // отброшенных (недоступный полный текст) новостей.
   app.post('/api/ingest', async (c) => {
     const result = await ingest(db)
     return c.json(result)

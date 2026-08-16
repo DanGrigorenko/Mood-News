@@ -8,7 +8,7 @@ import { fetchMoods, type Mood } from './moods.ts'
 import { factCheckSummary, type Rewrite } from './rewrite.ts'
 import { createRewriteStore, type RewriteStore } from './useRewrite.ts'
 import { createIssueStore } from './useIssue.ts'
-import { newsHref, interceptClick } from './address.ts'
+import { newsHref, interceptClick, type ClickModifiers } from './address.ts'
 import { useRoute } from './route.ts'
 import { AnchorMark, ArrowBack, ArrowOut, Brace } from './notation.tsx'
 
@@ -30,7 +30,7 @@ const PAGE = 30
 // открыть в новой вкладке, скопировать и увидеть в статусной строке. Формат
 // адреса и правило «перехватываем ли клик» живут в address.ts (issue #31).
 function onNavigate(
-  event: { preventDefault: () => void } & Parameters<typeof interceptClick>[0],
+  event: ClickModifiers & { preventDefault: () => void },
   link: string,
   go: (link: string) => void,
 ) {

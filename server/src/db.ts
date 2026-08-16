@@ -1,7 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { articleSchema, type Article } from './rss.ts'
-import type { Rewrite } from './rewrite.ts'
-import type { Anchor } from './anchor.ts'
+import { rewriteSchema, type Rewrite } from './rewrite.ts'
 import type { Mood } from './mood.ts'
 
 // SQLite файлом, схема одним CREATE TABLE IF NOT EXISTS при старте — без ORM
@@ -19,20 +18,17 @@ export function openDb(path: string): DatabaseSync {
     )
   `)
   // Кэш и хранилище Rewrite — одно и то же: пара (link, mood) — первичный ключ,
-  // генерация ленивая, живёт вечно (docs/adr/0001). anchors и missing — JSON.
+  // генерация ленивая, живёт вечно (docs/adr/0001). Rewrite хранится одной
+  // записью в data (JSON) и на чтении валидируется той же rewriteSchema, которой
+  // он описан в остальном коде: битая или устаревшая запись обнаруживается на
+  // чтении, а не проявляется на экране. Отдельными колонками остаётся только
+  // ключ пары — то, по чему реально ищут (issue #23). Добавление поля в Rewrite —
+  // правка одной схемы, а не согласованные правки в раскладке по колонкам.
   db.exec(`
     CREATE TABLE IF NOT EXISTS rewrites (
       link TEXT NOT NULL,
       mood TEXT NOT NULL,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL,
-      anchors TEXT NOT NULL,
-      missing TEXT NOT NULL,
-      anchor_count INTEGER NOT NULL,
-      attempts INTEGER NOT NULL,
-      unchanged INTEGER NOT NULL,
-      meaning_check TEXT NOT NULL,
-      distortion TEXT NOT NULL,
+      data TEXT NOT NULL,
       PRIMARY KEY (link, mood)
     )
   `)
@@ -84,51 +80,33 @@ export function getArticle(db: DatabaseSync, link: string): Article | undefined 
   return row ? articleSchema.parse(row) : undefined
 }
 
-// Форма строки таблицы rewrites: anchors и missing — JSON-строки, остальное как есть.
-type RewriteRow = {
-  mood: string
-  title: string
-  body: string
-  anchors: string
-  missing: string
-  anchor_count: number
-  attempts: number
-  unchanged: number
-  meaning_check: string
-  distortion: string
-}
-
-// Чтение Rewrite из кэша. Данные наши же, записанные insertRewrite ниже, поэтому
-// собираем объект напрямую; anchors и missing лежат JSON-строками.
+// Чтение Rewrite из кэша по паре (link, mood). Запись хранится одной JSON-строкой
+// в data и на чтении валидируется общей rewriteSchema: устаревшая (не хватает
+// полей после правки схемы) или битая (не-JSON) запись читается как промах кэша,
+// а не доезжает до экрана. stub:false восстанавливать отдельно не нужно — в кэш
+// пишется только настоящий Rewrite (см. resolveRewrite), значение лежит в data.
 export function getRewrite(
   db: DatabaseSync,
   link: string,
   mood: Mood,
 ): Rewrite | undefined {
   const row = db
-    .prepare(
-      `SELECT mood, title, body, anchors, missing, anchor_count, attempts, unchanged, meaning_check, distortion
-       FROM rewrites WHERE link = ? AND mood = ?`,
-    )
-    .get(link, mood) as RewriteRow | undefined
+    .prepare(`SELECT data FROM rewrites WHERE link = ? AND mood = ?`)
+    .get(link, mood) as { data: string } | undefined
   if (!row) return undefined
-  return {
-    mood: row.mood as Mood,
-    title: row.title,
-    body: row.body,
-    anchors: JSON.parse(row.anchors) as Anchor[],
-    missing: JSON.parse(row.missing) as Anchor[],
-    anchorCount: row.anchor_count,
-    attempts: row.attempts,
-    stub: false, // в кэш попадает только настоящий Rewrite (см. resolveRewrite)
-    unchanged: row.unchanged !== 0,
-    meaningCheck: row.meaning_check as Rewrite['meaningCheck'],
-    distortion: row.distortion,
+  let json: unknown
+  try {
+    json = JSON.parse(row.data)
+  } catch {
+    return undefined
   }
+  const parsed = rewriteSchema.safeParse(json)
+  return parsed.success ? parsed.data : undefined
 }
 
 // Запись Rewrite в кэш. INSERT OR IGNORE: пара (link, mood) пишется однажды и
-// живёт вечно, повтор не перезаписывает (docs/adr/0001).
+// живёт вечно, повтор не перезаписывает (docs/adr/0001). Весь Rewrite ложится
+// одной JSON-строкой в data.
 export function insertRewrite(
   db: DatabaseSync,
   link: string,
@@ -136,20 +114,6 @@ export function insertRewrite(
   rewrite: Rewrite,
 ): void {
   db.prepare(
-    `INSERT OR IGNORE INTO rewrites
-       (link, mood, title, body, anchors, missing, anchor_count, attempts, unchanged, meaning_check, distortion)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    link,
-    mood,
-    rewrite.title,
-    rewrite.body,
-    JSON.stringify(rewrite.anchors),
-    JSON.stringify(rewrite.missing),
-    rewrite.anchorCount,
-    rewrite.attempts,
-    rewrite.unchanged ? 1 : 0,
-    rewrite.meaningCheck,
-    rewrite.distortion,
-  )
+    `INSERT OR IGNORE INTO rewrites (link, mood, data) VALUES (?, ?, ?)`,
+  ).run(link, mood, JSON.stringify(rewrite))
 }

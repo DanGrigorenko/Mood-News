@@ -14,7 +14,7 @@ import {
 } from './articles.ts'
 import { fetchMoods, type Mood } from './moods.ts'
 import { factCheckSummary, type Rewrite } from './rewrite.ts'
-import { createRewriteStore } from './useRewrite.ts'
+import { createRewriteStore, type RewriteStore } from './useRewrite.ts'
 import { useRoute } from './route.ts'
 import { AnchorMark, ArrowBack, ArrowOut, Brace } from './notation.tsx'
 
@@ -53,8 +53,9 @@ function navigate(
 // быстром переключении Mood, ошибка, повтор — живёт отдельным module
 // useRewrite.ts и проверяется без React и без DOM (issue #25). Здесь только
 // подписка на его состояние: select переспрашивает Rewrite при смене пары.
-function useRewrite(link: string, mood: string) {
-  const [store] = useState(createRewriteStore)
+// Само хранилище передаётся из корня (issue #32): оно живёт дольше страницы
+// новости, поэтому возврат в выпуск не стирает уже полученные Rewrite.
+function useRewrite(store: RewriteStore, link: string, mood: string) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   useEffect(() => {
     store.select(link, mood)
@@ -134,11 +135,13 @@ function Piece(props: {
   index: number
   moods: Mood[]
   selected: string
+  store: RewriteStore
   onSelect: (id: string) => void
   onBack: () => void
 }) {
   const { article } = props
   const { rewrite, loading, error, retry } = useRewrite(
+    props.store,
     article.link,
     props.selected,
   )
@@ -315,6 +318,10 @@ export function App() {
   const [articles, setArticles] = useState<Article[]>([])
   const [moods, setMoods] = useState<Mood[]>([])
   const [selectedMood, setSelectedMood] = useState('neutral')
+  // Хранилище Rewrite живёт на уровне выбранного Mood, а не внутри страницы
+  // новости: возврат в выпуск размонтирует страницу, но не хранилище, поэтому
+  // повторное открытие уже полученной пары показывает Rewrite сразу (issue #32).
+  const [rewriteStore] = useState(createRewriteStore)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -406,6 +413,7 @@ export function App() {
           index={openIndex + 1}
           moods={moods}
           selected={selectedMood}
+          store={rewriteStore}
           onSelect={setSelectedMood}
           onBack={() => go(null)}
         />

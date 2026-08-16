@@ -45,18 +45,36 @@ export function createRewriteStore(
   let token = 0
   let last: { link: string; mood: string } | null = null
 
+  // Уже полученные Rewrite по паре «Article + Mood». Хранилище поднято в корень
+  // (issue #32) и переживает возврат в выпуск, поэтому повторный выбор ранее
+  // выбранной пары отдаётся из памяти, а не идёт в API заново. Кэшируется только
+  // успешный ответ примененной пары: ошибка и устаревший ответ сюда не попадают,
+  // а retry обходит кэш и всегда перезапрашивает.
+  const cache = new Map<string, Rewrite>()
+  const keyOf = (link: string, mood: string) => `${link}\n${mood}`
+
   function set(next: RewriteState) {
     state = next
     for (const listener of listeners) listener()
   }
 
-  function request(link: string, mood: string) {
+  function request(link: string, mood: string, fresh: boolean) {
     last = { link, mood }
     const mine = ++token
+    if (!fresh) {
+      const cached = cache.get(keyOf(link, mood))
+      if (cached !== undefined) {
+        set({ rewrite: cached, loading: false, error: null })
+        return
+      }
+    }
     set({ rewrite: null, loading: true, error: null })
     fetchOne(link, mood).then(
       (rewrite) => {
-        if (mine === token) set({ rewrite, loading: false, error: null })
+        if (mine === token) {
+          cache.set(keyOf(link, mood), rewrite)
+          set({ rewrite, loading: false, error: null })
+        }
       },
       (err: unknown) => {
         if (mine === token)
@@ -73,9 +91,9 @@ export function createRewriteStore(
         listeners.delete(listener)
       }
     },
-    select: request,
+    select: (link, mood) => request(link, mood, false),
     retry() {
-      if (last !== null) request(last.link, last.mood)
+      if (last !== null) request(last.link, last.mood, true)
     },
   }
 }

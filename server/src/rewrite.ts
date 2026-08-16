@@ -85,6 +85,7 @@ export function feedbackAccumulator(article: Article): FeedbackAccumulator {
       // missing, unchanged и surviving берём от этой попытки; distortion
       // обновляем только когда Meaning Check отработал (anchorsPassed) — иначе
       // Anchor-провал затёр бы имя искажения, которое следующий ретрай ещё несёт.
+      const carriedDistortion = feedback?.distortion ?? ''
       feedback = {
         missing: verdict.missing,
         unchanged: verdict.unchanged,
@@ -94,7 +95,7 @@ export function feedbackAccumulator(article: Article): FeedbackAccumulator {
               `${article.title}\n${article.announce}`,
             )
           : [],
-        distortion: anchorsPassed(verdict) ? verdict.distortion : (feedback?.distortion ?? ''),
+        distortion: anchorsPassed(verdict) ? verdict.distortion : carriedDistortion,
       }
     },
   }

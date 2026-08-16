@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { MOOD_LABELS, type Mood } from '../src/mood.ts'
+import { MOOD_LABELS, MOOD_IDS } from '../src/mood.ts'
 import { generateRewrite, type Rewrite } from '../src/rewrite.ts'
 import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from '../src/llm.ts'
 import type { Article } from '../src/rss.ts'
@@ -13,8 +13,6 @@ import { summarize, formatSummary } from './aggregate.ts'
 // eval`: она стоит денег и недетерминирована, поэтому в `npm test` не входит и в
 // CI не висит. Корпус заморожен, чтобы сравнивать «до» и «после» правки промпта
 // на одном материале.
-
-const MOODS: Mood[] = ['neutral', 'joyful', 'sad', 'ironic', 'dramatic']
 
 // Корпус — внешние данные для раннера, читаются с диска и валидируются zod.
 const corpusEntrySchema = z.object({
@@ -72,12 +70,12 @@ async function main(): Promise<void> {
   }
 
   const corpus = loadCorpus()
-  console.log(`Eval: ${corpus.length} Snippet × ${MOODS.length} Mood — живые вызовы модели.\n`)
+  console.log(`Eval: ${corpus.length} Snippet × ${MOOD_IDS.length} Mood — живые вызовы модели.\n`)
 
   const rewrites: Rewrite[] = []
   for (const entry of corpus) {
     const article = articleOf(entry)
-    for (const mood of MOODS) {
+    for (const mood of MOOD_IDS) {
       const rewrite = await generateRewrite(
         article,
         mood,

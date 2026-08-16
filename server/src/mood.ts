@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 // Набор Mood конечен и задан кодом — пользователь не может придумать свой
 // (см. CONTEXT.md). Порядок здесь — порядок, в котором Mood показываются фронту.
-const MOOD_IDS = ['neutral', 'joyful', 'sad', 'ironic', 'dramatic'] as const
+export const MOOD_IDS = ['neutral', 'joyful', 'sad', 'ironic', 'dramatic'] as const
 
 export const moodSchema = z.enum(MOOD_IDS)
 export type Mood = z.infer<typeof moodSchema>

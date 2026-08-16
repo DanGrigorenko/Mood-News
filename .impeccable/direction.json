@@ -1,0 +1,29 @@
+{
+  "seedKey": "5cac94a0",
+  "scope": "direction",
+  "mode": "read",
+  "candidateCount": 7,
+  "assignedIndex": 6,
+  "assignedDirection": "Партитура",
+  "reproduce": "node ~/.claude/skills/impeccable/scripts/concept-seed.mjs --scope direction --mode read --from 5cac94a0 --candidate-count 7",
+  "groundedCandidates": [
+    "Телетайпная лента информагентства",
+    "Корректорская вычитка",
+    "Советский газетный набор",
+    "Табло вокзала со сплит-флапом",
+    "Шкала радиоприёмника",
+    "Партитура",
+    "Криминалистическая сверка документов"
+  ],
+  "challengerVerdicts": {
+    "operate-b-normalled-jackfield": "competitive",
+    "rw-botteghe-quarterly-interior": "competitive",
+    "operate-a-cutting-bench-select-rail": "declined",
+    "paper-folds-pleats-deployable-orizuru-crane-sequence": "declined",
+    "games-toys-physics-play-brick-build-instructions": "declined",
+    "notation-diagram-systems-star-atlas": "declined"
+  },
+  "chosenBy": "user",
+  "chosenOption": "assigned",
+  "decisionPayload": ".impeccable/decision.json"
+}

@@ -1,0 +1,394 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-16T00:00:00Z",
+  "title": "Design System: Mood News",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Тряпичная бумага",
+        "canonical": "#f4f3ef",
+        "tonalRamp": [
+          "#24231f",
+          "#3b3934",
+          "#54524b",
+          "#6f6c64",
+          "#8b887f",
+          "#a9a69c",
+          "#c8c5bb",
+          "#f4f3ef"
+        ]
+      },
+      "paper-deep": {
+        "role": "neutral",
+        "displayName": "Бумага в тени",
+        "canonical": "#eae8e1",
+        "tonalRamp": [
+          "#232219",
+          "#3a382e",
+          "#524f43",
+          "#6c6959",
+          "#888470",
+          "#a5a18b",
+          "#c6c2ae",
+          "#eae8e1"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Тушь",
+        "canonical": "#14161a",
+        "tonalRamp": [
+          "#14161a",
+          "#22262c",
+          "#333840",
+          "#464c56",
+          "#5c626d",
+          "#7b818c",
+          "#a8adb6",
+          "#dcdee2"
+        ]
+      },
+      "ink-soft": {
+        "role": "neutral",
+        "displayName": "Тушь разведённая",
+        "canonical": "#55575c",
+        "tonalRamp": [
+          "#16171a",
+          "#25272b",
+          "#37393e",
+          "#4a4c51",
+          "#55575c",
+          "#7d7f85",
+          "#a9abb1",
+          "#dcdde1"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Линейка",
+        "canonical": "#c9c7c0",
+        "tonalRamp": [
+          "#1e1d19",
+          "#33322c",
+          "#4a4841",
+          "#636057",
+          "#7e7b71",
+          "#9b988d",
+          "#c9c7c0",
+          "#eeece7"
+        ]
+      },
+      "blue": {
+        "role": "primary",
+        "displayName": "Синий редакторский карандаш",
+        "canonical": "#1c3fa2",
+        "tonalRamp": [
+          "#080f2b",
+          "#0d1a49",
+          "#122767",
+          "#16327e",
+          "#1c3fa2",
+          "#3c5fc4",
+          "#7b93dc",
+          "#dfe4f2"
+        ]
+      },
+      "blue-deep": {
+        "role": "primary",
+        "displayName": "Синий нажатый",
+        "canonical": "#16327e",
+        "tonalRamp": [
+          "#060c22",
+          "#0a153b",
+          "#0e1f54",
+          "#12296b",
+          "#16327e",
+          "#2c50ab",
+          "#6a86d2",
+          "#d6dcef"
+        ]
+      },
+      "blue-pale": {
+        "role": "primary",
+        "displayName": "Синий выцветший",
+        "canonical": "#dfe4f2",
+        "tonalRamp": [
+          "#0a1128",
+          "#111d45",
+          "#182a63",
+          "#22397f",
+          "#3a539e",
+          "#6d84c2",
+          "#a8b8de",
+          "#dfe4f2"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Заголовок главной новости на синей плашке и титул «Mood News». Всегда 800, всегда text-wrap: balance, не шире 22ch."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Заголовки станов на странице новости. Оригинал и переписанное набраны одинаково — разница только в тексте."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Заголовки строк выпуска старшего ранга (первые три). Младший ранг падает до кегля корпуса."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Базовый набор интерфейса и анонсы списка. Мера — 62ch."
+      },
+      "body-lead": {
+        "displayName": "Body Lead",
+        "purpose": "Текст в станах и на плашке. Мера — 66ch (var(--measure)), на плашке 54ch."
+      },
+      "expression": {
+        "displayName": "Expression",
+        "purpose": "Ремарка исполнения: итальянский термин Mood, ремарка в титуле и на плашке, редакторские вставки, «Дальше по выпуску». Курсив здесь несёт смысл."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Служебный набор: источник, время, счёт фактов. Alegreya Sans, прописные, разрядка 0.09em, tabular-nums."
+      },
+      "label-strong": {
+        "displayName": "Label Strong",
+        "purpose": "Реперная метка, кнопки и вертикальная рубрика стана. 700, разрядка 0.12–0.14em."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "settle",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Единственное затухание проекта: быстро уходит, долго успокаивается. Используется во всех transition и в @keyframes settle."
+      },
+      {
+        "name": "settle-in",
+        "value": "@keyframes settle { from { opacity: 0; transform: translateY(6px); } } — 0.5s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "purpose": "Единственная авторская анимация. Переписанный текст оседает на место, как свежий оттиск. Применяется к .lead-body и .stave-rewritten, перезапускается через key при смене Mood."
+      },
+      {
+        "name": "state-shift",
+        "value": "0.18s cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Смена цвета/фона у кнопок, указаний исполнения и строк выпуска."
+      },
+      {
+        "name": "plate-shift",
+        "value": "0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Заливка плашки главной новости при наведении."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }",
+        "purpose": "Вся моторика гасится целиком, включая ::before/::after."
+      }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "760px" }
+    ],
+    "browserSurfaces": [
+      { "name": "selection", "value": "::selection { background: var(--blue); color: var(--paper); }" },
+      { "name": "focus-ring", "value": ":focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }" },
+      { "name": "scrollbar", "value": "html { scrollbar-color: var(--rule) var(--paper); }" },
+      { "name": "link-underline", "value": "a { text-decoration-color: var(--rule); text-underline-offset: 0.18em; text-decoration-thickness: 1px; } a:hover { text-decoration-color: var(--blue); }" }
+    ],
+    "fonts": {
+      "hosting": "self-hosted woff2",
+      "families": [
+        "Alegreya — variable 400–900, roman + italic",
+        "Alegreya Sans — 400 / 500 / 700 normal, 400 italic"
+      ],
+      "subsets": ["cyrillic", "cyrillic-ext", "latin", "latin-ext"],
+      "display": "swap",
+      "preload": [
+        "/fonts/alegreya-normal-400900-cyrillic.woff2",
+        "/fonts/alegreya-sans-normal-500-cyrillic.woff2"
+      ],
+      "constraint": "Интерфейс проекта только русский — любая гарнитура обязана нести кириллицу."
+    }
+  },
+  "components": [
+    {
+      "name": "Плашка главной новости",
+      "kind": "card",
+      "refersTo": "lead-plate",
+      "description": "Единственная насыщенная поверхность системы: главная новость выбита бумагой на синем. Острые углы, без рамки и тени.",
+      "html": "<a class=\"ds-lead\" href=\"#\"><span class=\"ds-lead-head\"><span class=\"ds-mark\">№ 1</span><span class=\"ds-lead-term\">senza espressione</span></span><span class=\"ds-lead-body\"><h2>В Новосибирске рабочий погиб на предприятии</h2><p>В Новосибирске на одном из предприятий погиб рабочий. Инцидент произошел в указанное время.</p></span><span class=\"ds-lead-foot\"><span>РИА НОВОСТИ</span><span>16 АВГУСТА 2026 Г. В 12:07</span></span></a>",
+      "css": ".ds-lead { display: block; background: var(--blue, #1c3fa2); color: var(--paper, #f4f3ef); text-decoration: none; padding: 40px 40px 32px; border-radius: 0; font-family: Alegreya, Georgia, serif; transition: background 0.2s cubic-bezier(0.16, 1, 0.3, 1); } .ds-lead:hover { background: var(--blue-deep, #16327e); } .ds-lead:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; } .ds-lead-head { display: flex; align-items: center; gap: 16px; } .ds-mark { display: inline-block; border: 1.5px solid currentColor; padding: 2px 10px; font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; } .ds-lead-term { font-style: italic; font-size: 1rem; color: var(--blue-pale, #dfe4f2); } .ds-lead-body { display: block; animation: ds-settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; } .ds-lead h2 { font-size: clamp(2rem, 5vw, 4rem); font-weight: 800; line-height: 1; letter-spacing: -0.025em; text-wrap: balance; margin: 20px 0 0; max-width: 22ch; } .ds-lead p { font-size: 1.1875rem; line-height: 1.5; margin: 16px 0 0; max-width: 54ch; color: var(--blue-pale, #dfe4f2); } .ds-lead-foot { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 32px; color: var(--blue-pale, #dfe4f2); font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; font-variant-numeric: tabular-nums; } @keyframes ds-settle { from { opacity: 0; transform: translateY(6px); } }"
+    },
+    {
+      "name": "Указания исполнения (переключатель Mood)",
+      "kind": "nav",
+      "refersTo": "register",
+      "description": "Ряд текстовых кнопок по базовой линии: русское название Mood и итальянский термин курсивом под ним. Активное — синий текст и синее подчёркивание 2px.",
+      "html": "<nav class=\"ds-registers\" aria-label=\"Настроение\"><span class=\"ds-registers-label\">Исполнить</span><button class=\"ds-register\" aria-pressed=\"true\"><span class=\"ds-register-name\">Нейтрально</span><span class=\"ds-register-term\">senza espressione</span></button><button class=\"ds-register\" aria-pressed=\"false\"><span class=\"ds-register-name\">Радостно</span><span class=\"ds-register-term\">giocoso</span></button><button class=\"ds-register\" aria-pressed=\"false\"><span class=\"ds-register-name\">Драматично</span><span class=\"ds-register-term\">drammatico</span></button></nav>",
+      "css": ".ds-registers { display: flex; flex-wrap: wrap; align-items: baseline; gap: 24px; padding-bottom: 12px; border-bottom: 1px solid var(--rule, #c9c7c0); } .ds-registers-label { font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.7rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft, #55575c); } .ds-register { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 0 0 4px; cursor: pointer; color: var(--ink-soft, #55575c); font-family: Alegreya, Georgia, serif; font-size: 1.0625rem; line-height: 1.2; text-align: left; transition: color 0.18s cubic-bezier(0.16, 1, 0.3, 1); } .ds-register:hover { color: var(--ink, #14161a); } .ds-register:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; } .ds-register-name { display: block; font-weight: 500; } .ds-register-term { display: block; font-style: italic; font-size: 0.85rem; color: var(--ink-soft, #55575c); } .ds-register[aria-pressed='true'] { color: var(--blue, #1c3fa2); border-bottom-color: var(--blue, #1c3fa2); } .ds-register[aria-pressed='true'] .ds-register-term { color: var(--blue, #1c3fa2); }"
+    },
+    {
+      "name": "Кнопка «Обновить»",
+      "kind": "button",
+      "refersTo": "refresh-button",
+      "description": "Пометка тушью, а не кнопка интерфейса: рамка 1px, острые углы, прописные с разрядкой. Hover — полная инверсия.",
+      "html": "<button class=\"ds-refresh\">Обновить</button>",
+      "css": ".ds-refresh { font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink, #14161a); background: transparent; border: 1px solid var(--ink, #14161a); border-radius: 0; padding: 10px 20px; cursor: pointer; transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s cubic-bezier(0.16, 1, 0.3, 1); } .ds-refresh:hover:not(:disabled) { background: var(--ink, #14161a); color: var(--paper, #f4f3ef); } .ds-refresh:active:not(:disabled) { background: var(--blue, #1c3fa2); border-color: var(--blue, #1c3fa2); color: var(--paper, #f4f3ef); } .ds-refresh:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; } .ds-refresh:disabled { cursor: progress; border-color: var(--rule, #c9c7c0); color: var(--ink-soft, #55575c); }"
+    },
+    {
+      "name": "Строка выпуска",
+      "kind": "custom",
+      "refersTo": "entry",
+      "description": "Не карточка, а строка стана: ключ слева (номер и источник), заголовок в центре, время справа, волосяная линейка снизу. Два ранга — с анонсом и без.",
+      "html": "<div class=\"ds-staff\"><a class=\"ds-entry ds-entry-major\" href=\"#\"><span class=\"ds-entry-clef\"><span>№ 2</span><span>РИА НОВОСТИ</span></span><span><h2>Политик рассказал, зачем Стубб заговорил о восстановлении диалога с Россией</h2><p>Анонс новости старшего ранга — он есть только у первых трёх строк выпуска.</p></span><span class=\"ds-entry-time\">16 АВГ., 12:05</span></a><a class=\"ds-entry ds-entry-minor\" href=\"#\"><span class=\"ds-entry-clef\"><span>№ 5</span><span>LENTA.RU</span></span><span><h2>Раскрыты подробности о расправах над солдатами ВСУ</h2></span><span class=\"ds-entry-time\">16 АВГ., 12:04</span></a></div>",
+      "css": ".ds-staff { border-top: 1px solid var(--ink, #14161a); font-family: Alegreya, Georgia, serif; } .ds-entry { display: grid; grid-template-columns: 11rem 1fr 7.5rem; gap: 24px; align-items: baseline; border-bottom: 1px solid var(--rule, #c9c7c0); padding: 24px 12px; color: var(--ink, #14161a); text-decoration: none; transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1); } .ds-entry:hover { background: var(--paper-deep, #eae8e1); } .ds-entry:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; } .ds-entry-clef, .ds-entry-time { font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-soft, #55575c); font-variant-numeric: tabular-nums; } .ds-entry-clef { display: flex; align-items: baseline; gap: 10px; } .ds-entry:hover .ds-entry-clef { color: var(--blue, #1c3fa2); } .ds-entry-time { text-align: right; } .ds-entry h2 { margin: 0; font-weight: 600; line-height: 1.2; text-wrap: balance; } .ds-entry p { margin: 8px 0 0; color: var(--ink-soft, #55575c); font-size: 0.9375rem; line-height: 1.5; max-width: 62ch; } .ds-entry-major h2 { font-size: clamp(1.35rem, 2.1vw, 1.75rem); } .ds-entry-minor h2 { font-size: 1.0625rem; } @media (max-width: 760px) { .ds-entry { grid-template-columns: 1fr; gap: 12px; } .ds-entry-time { text-align: left; } }"
+    },
+    {
+      "name": "Fact Check: ноты и паузы",
+      "kind": "custom",
+      "refersTo": "anchor",
+      "description": "Сигнатурный компонент. Уцелевший Anchor — нота на волосяной линейке, Missing Anchor — пауза, подвешенная на той же линейке, подпись уходит в 700. Ни зелёного, ни красного.",
+      "html": "<section class=\"ds-factcheck\"><span class=\"ds-factcheck-count\">Факты сохранены: 4/6</span><div class=\"ds-factcheck-row\"><span class=\"ds-anchor\"><svg width=\"20\" height=\"26\" viewBox=\"0 0 20 26\" aria-hidden=\"true\" focusable=\"false\"><line x1=\"15.4\" y1=\"18\" x2=\"15.4\" y2=\"2\" stroke=\"currentColor\" stroke-width=\"1.6\"/><ellipse cx=\"10\" cy=\"18\" rx=\"5.4\" ry=\"3.9\" fill=\"currentColor\" transform=\"rotate(-22 10 18)\"/></svg><span class=\"ds-anchor-text\">ГД</span></span><span class=\"ds-anchor\"><svg width=\"20\" height=\"26\" viewBox=\"0 0 20 26\" aria-hidden=\"true\" focusable=\"false\"><line x1=\"15.4\" y1=\"18\" x2=\"15.4\" y2=\"2\" stroke=\"currentColor\" stroke-width=\"1.6\"/><ellipse cx=\"10\" cy=\"18\" rx=\"5.4\" ry=\"3.9\" fill=\"currentColor\" transform=\"rotate(-22 10 18)\"/></svg><span class=\"ds-anchor-text\">Госслужащие</span></span><span class=\"ds-anchor ds-anchor-lost\"><svg width=\"20\" height=\"26\" viewBox=\"0 0 20 26\" aria-hidden=\"true\" focusable=\"false\"><line x1=\"3\" y1=\"13\" x2=\"17\" y2=\"13\" stroke=\"currentColor\" stroke-width=\"1\"/><rect x=\"5.5\" y=\"13\" width=\"9\" height=\"5.5\" fill=\"currentColor\"/></svg><span class=\"ds-anchor-text\">Андрей</span></span><span class=\"ds-anchor ds-anchor-lost\"><svg width=\"20\" height=\"26\" viewBox=\"0 0 20 26\" aria-hidden=\"true\" focusable=\"false\"><line x1=\"3\" y1=\"13\" x2=\"17\" y2=\"13\" stroke=\"currentColor\" stroke-width=\"1\"/><rect x=\"5.5\" y=\"13\" width=\"9\" height=\"5.5\" fill=\"currentColor\"/></svg><span class=\"ds-anchor-text\">Свинцов</span></span></div><p class=\"ds-factcheck-lost\">На месте пауз должны были звучать факты — значит, переписывание их потеряло. Текст всё равно показан: мы не прячем промах.</p></section>",
+      "css": ".ds-factcheck { padding-top: 24px; border-top: 1px solid var(--rule, #c9c7c0); font-family: Alegreya, Georgia, serif; color: var(--ink, #14161a); } .ds-factcheck-count { display: block; margin-bottom: 24px; font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-soft, #55575c); font-variant-numeric: tabular-nums; } .ds-factcheck-row { display: flex; flex-wrap: wrap; row-gap: 20px; column-gap: 0; align-items: flex-start; } .ds-anchor { display: grid; justify-items: center; gap: 6px; min-width: 5.5rem; max-width: 14ch; padding: 0 12px; background-image: linear-gradient(var(--rule, #c9c7c0), var(--rule, #c9c7c0)); background-size: 100% 1px; background-position: 0 19px; background-repeat: no-repeat; } .ds-anchor svg { color: var(--ink, #14161a); display: block; } .ds-anchor-text { font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.8125rem; line-height: 1.25; text-align: center; color: var(--ink-soft, #55575c); overflow-wrap: anywhere; } .ds-anchor-lost .ds-anchor-text { color: var(--ink, #14161a); font-weight: 700; } .ds-factcheck-lost { margin: 24px 0 0; max-width: 66ch; font-style: italic; }"
+    },
+    {
+      "name": "Система с акколадой",
+      "kind": "custom",
+      "refersTo": "stave-label",
+      "description": "Два стана — оригинал и переписанное — соединены авторской SVG-акколадой. Рубрика стоит вертикально в левом поле, а не над заголовком.",
+      "html": "<div class=\"ds-system\"><svg class=\"ds-brace\" viewBox=\"0 0 14 200\" preserveAspectRatio=\"none\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M12 2 C 5 20, 11 76, 2 100 C 11 124, 5 180, 12 198\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\"/></svg><div class=\"ds-staves\"><section class=\"ds-stave\"><p class=\"ds-stave-label\">Как передал источник</p><div><h2>В ГД рассказали, какие модели ИИ смогут использовать чиновники</h2><p>Госслужащие будут использовать только проверенные модели искусственного интеллекта, заявил зампред комитета Госдумы по информполитике Андрей Свинцов</p></div></section><section class=\"ds-stave\"><p class=\"ds-stave-label\">Переписано</p><div class=\"ds-stave-rewritten\"><h2>На кону стоит всё: Госдума определила судьбу ИИ в руках чиновников</h2><p>В самый разгар битвы за будущее технологий ГД отчиталась о жестких правилах для Госслужащих.</p></div></section></div></div>",
+      "css": ".ds-system { display: grid; grid-template-columns: 22px 1fr; gap: 24px; font-family: Alegreya, Georgia, serif; color: var(--ink, #14161a); } .ds-brace { color: var(--ink, #14161a); width: 22px; height: 100%; } .ds-staves { display: grid; gap: 40px; } .ds-stave { display: grid; grid-template-columns: 2.5rem 1fr; } .ds-stave + .ds-stave { padding-top: 40px; border-top: 1px solid var(--rule, #c9c7c0); } .ds-stave-label { writing-mode: vertical-rl; transform: rotate(180deg); justify-self: start; align-self: start; margin: 0; font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft, #55575c); } .ds-stave h2 { font-size: clamp(1.6rem, 3.4vw, 2.5rem); font-weight: 700; line-height: 1.08; letter-spacing: -0.02em; text-wrap: balance; margin: 0; max-width: 28ch; } .ds-stave p { margin: 16px 0 0; max-width: 66ch; font-size: 1.1875rem; line-height: 1.65; } .ds-stave-rewritten { animation: ds-settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; } @keyframes ds-settle { from { opacity: 0; transform: translateY(6px); } } @media (max-width: 760px) { .ds-system { grid-template-columns: 12px 1fr; gap: 12px; } .ds-brace { width: 12px; } .ds-stave { grid-template-columns: 1.75rem 1fr; } }"
+    },
+    {
+      "name": "Редакторская вставка с повтором",
+      "kind": "custom",
+      "refersTo": "editorial-alert",
+      "description": "Так выглядит ошибка в этой системе: курсив в квадратных скобках, отбитый линейками цвета туши, и кнопка, называющая выход.",
+      "html": "<div><p class=\"ds-editorial ds-editorial-alert\">переписать не удалось: модель ответила 429</p><button class=\"ds-retry\">Переписать ещё раз</button></div>",
+      "css": ".ds-editorial { font-family: Alegreya, Georgia, serif; font-style: italic; color: var(--ink-soft, #55575c); border-top: 1px solid var(--rule, #c9c7c0); border-bottom: 1px solid var(--rule, #c9c7c0); padding: 12px 0; margin: 0; max-width: 66ch; font-size: 1.0625rem; line-height: 1.6; } .ds-editorial::before { content: '['; } .ds-editorial::after { content: ']'; } .ds-editorial-alert { color: var(--ink, #14161a); border-color: var(--ink, #14161a); } .ds-retry { margin-top: 16px; padding: 8px 16px; background: transparent; border: 1px solid var(--ink, #14161a); border-radius: 0; cursor: pointer; color: var(--ink, #14161a); font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s cubic-bezier(0.16, 1, 0.3, 1); } .ds-retry:hover { background: var(--ink, #14161a); color: var(--paper, #f4f3ef); } .ds-retry:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; }"
+    },
+    {
+      "name": "Титульный стан и двойная тактовая черта",
+      "kind": "nav",
+      "refersTo": "mark",
+      "description": "Первый экран: ремарка исполнения курсивом, «Mood News», кнопка «Обновить» и двойная тактовая черта — волосяная 1px поверх тактовой 3px.",
+      "html": "<header class=\"ds-header\"><div class=\"ds-masthead\"><div><p class=\"ds-masthead-note\">senza espressione</p><h1><a href=\"#\">Mood News</a></h1></div><button class=\"ds-refresh\">Обновить</button></div><div class=\"ds-double-barline\"></div></header>",
+      "css": ".ds-header { font-family: Alegreya, Georgia, serif; color: var(--ink, #14161a); } .ds-masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; } .ds-masthead h1 { font-size: clamp(2.1rem, 4.6vw, 3.4rem); font-weight: 800; line-height: 0.95; letter-spacing: -0.02em; margin: 0; } .ds-masthead h1 a { color: inherit; text-decoration: none; } .ds-masthead-note { font-style: italic; font-size: 1.05rem; color: var(--blue, #1c3fa2); margin: 0 0 4px; } .ds-double-barline { border-top: 1px solid var(--rule, #c9c7c0); border-bottom: 3px solid var(--ink, #14161a); height: 3px; margin-top: 16px; } .ds-refresh { font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink, #14161a); background: transparent; border: 1px solid var(--ink, #14161a); border-radius: 0; padding: 10px 20px; cursor: pointer; transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.18s cubic-bezier(0.16, 1, 0.3, 1); } .ds-refresh:hover { background: var(--ink, #14161a); color: var(--paper, #f4f3ef); }"
+    },
+    {
+      "name": "Переход по выпуску («V.S.»)",
+      "kind": "button",
+      "refersTo": "more-button",
+      "description": "Не кнопка, а тактовая черта: во всю ширину, без фона и боковых границ, нижняя граница 3px тушью. Курсивный текст слева, служебный счётчик справа.",
+      "html": "<button class=\"ds-more\">Дальше по выпуску<span class=\"ds-more-count\">показано 31 из 744</span></button>",
+      "css": ".ds-more { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; padding: 20px 12px; background: none; border: 0; border-bottom: 3px solid var(--ink, #14161a); border-radius: 0; cursor: pointer; color: var(--ink, #14161a); font-family: Alegreya, Georgia, serif; font-style: italic; font-size: 1.125rem; text-align: left; transition: color 0.18s cubic-bezier(0.16, 1, 0.3, 1); } .ds-more:hover { color: var(--blue, #1c3fa2); } .ds-more:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; } .ds-more-count { font-family: 'Alegreya Sans', system-ui, sans-serif; font-style: normal; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-soft, #55575c); font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Ссылка на источник",
+      "kind": "custom",
+      "refersTo": "editorial",
+      "description": "Финальная тактовая черта 3px и под ней — синяя ссылка наружу с авторской SVG-стрелкой, справа служебная строка.",
+      "html": "<footer class=\"ds-fine\"><a class=\"ds-source-link\" href=\"#\">Читать в источнике: ТАСС<svg width=\"13\" height=\"13\" viewBox=\"0 0 13 13\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M3.5 9.5 L9.5 3.5 M4.6 3.5 H9.5 V8.4\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></a><span class=\"ds-fine-note\">Оригинал не редактируется — меняется только тон</span></footer>",
+      "css": ".ds-fine { border-top: 3px solid var(--ink, #14161a); padding-top: 20px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 16px; font-family: Alegreya, Georgia, serif; } .ds-source-link { display: inline-flex; align-items: center; gap: 8px; font-size: 1.0625rem; color: var(--blue, #1c3fa2); text-decoration-color: var(--blue, #1c3fa2); text-underline-offset: 0.18em; text-decoration-thickness: 1px; } .ds-source-link:hover { text-decoration-color: var(--blue-deep, #16327e); color: var(--blue-deep, #16327e); } .ds-source-link:focus-visible { outline: 2px solid var(--blue, #1c3fa2); outline-offset: 3px; } .ds-fine-note { font-family: 'Alegreya Sans', system-ui, sans-serif; font-size: 0.75rem; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--ink-soft, #55575c); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "«Партитура» (гравированная партитура)",
+    "overview": "Страница — не портал, а нотный лист. Всё стоит на линиях стана: волосяные линейки, тактовые черты, реперные метки, акколада. Ни одной карточки, ни одного закругления, ни одной тени. Материал — холодная тряпичная бумага и тушь; единственная краска в мире — синий редакторский карандаш, и он появляется там, где система что-то указывает исполнителю: ремарка регистра, реперная метка, плашка главной новости, ссылка на источник.\n\nПлотность высокая и намеренно неровная: титульный стан и синяя плашка дышат, а список выпуска идёт частыми строками с волосяной линейкой под каждой — так выпуск читается как страница нот, а не как лента одинаковых плиток. Ранг задан ровно двумя кеглями заголовка и наличием анонса, а не рамкой, фоном или бейджем.\n\nКлючевой отказ, зафиксированный миром: сетка одинаковых скруглённых карточек — стандартная раскладка новостного портала. Второй отказ — цветовая индикация состояния: состояние в этой системе рисуется знаком, а не красится. Отсюда же запрет на надзаголовок: рубрика уходит в левое поле стана, вдоль нотоносца, как название партии.",
+    "keyCharacteristics": [
+      "Бумага и тушь, одна краска на весь мир — синий карандаш редактора.",
+      "Абсолютно плоско: ноль теней, ноль скруглений; глубина — вес линейки.",
+      "Всё на линейках: волосяная 1px, тактовая 3px, двойная тактовая черта.",
+      "Один суперсемейный набор: Alegreya для чтения, Alegreya Sans для служебного набора.",
+      "Курсив несёт смысл — это ремарка исполнения, а не украшение.",
+      "Fact Check рисуется нотами и паузами; потеря названа жирным, а не красным.",
+      "Одна анимация на весь проект: settle."
+    ],
+    "rules": [
+      {
+        "name": "Правило одной краски",
+        "body": "В мире ровно один пигмент — синий карандаш. Любой новый акцент берётся из него или не берётся вообще; вводить второй цвет (зелёный «успех», красный «ошибка», жёлтый «внимание») запрещено.",
+        "section": "colors"
+      },
+      {
+        "name": "Правило нарисованного состояния",
+        "body": "Состояние показывается знаком, весом или линией, а не цветом. Успех Fact Check — нота, потеря — пауза; ошибка — курсивная вставка в квадратных скобках, обведённая тушью, а не красной рамкой.",
+        "section": "colors"
+      },
+      {
+        "name": "Правило выцветшего только на плашке",
+        "body": "blue-pale живёт исключительно на синем. На бумаге он не читается и в системе не появляется.",
+        "section": "colors"
+      },
+      {
+        "name": "Правило одного суперсемейства",
+        "body": "Alegreya читает, Alegreya Sans служит. Третья гарнитура в систему не вводится; моноширинного набора в мире нет.",
+        "section": "typography"
+      },
+      {
+        "name": "Правило значащего курсива",
+        "body": "Курсив несёт указание исполнения, редакторскую приписку и переход на следующую страницу. Курсивом нельзя выделять «просто важное»: если курсив ничего не указывает, он лишний.",
+        "section": "typography"
+      },
+      {
+        "name": "Правило одинакового кегля станов",
+        "body": "Оригинал и переписанное набраны одним кеглем и одним весом. Кто из них «главный» — не решает типографика.",
+        "section": "typography"
+      },
+      {
+        "name": "Правило шага линейки",
+        "body": "Любой вертикальный отступ — кратное 8px, записанное через calc(var(--step) * n). Произвольных «13px» в системе нет.",
+        "section": "layout"
+      },
+      {
+        "name": "Правило сохранённой системы",
+        "body": "Акколада и вертикальная рубрика остаются на телефоне. Их убирают только вместе с самой системой: без скобки оригинал и переписанное читаются как два отдельных куска, а не как одна система — поэтому поле сужается, но не отменяется.",
+        "section": "layout"
+      },
+      {
+        "name": "Правило нулевой толщины",
+        "body": "Ни теней, ни скруглений, ни подсветок. Если элемент нужно «поднять» — он не поднимается, а обводится линейкой нужного веса или заливается плашкой.",
+        "section": "elevation"
+      },
+      {
+        "name": "Правило двух весов",
+        "body": "В системе ровно два веса линии: 1px волосяная и 3px тактовая. Промежуточных 2px-разделителей нет (2px существует только как подчёркивание активного указания исполнения и как штрих акколады — это знаки, а не разделители).",
+        "section": "elevation"
+      },
+      {
+        "name": "Правило нарисованного глифа",
+        "body": "Нотные и навигационные знаки рисуются SVG в коде проекта. Иконочные шрифты, юникодные музыкальные символы и внешние icon-пакеты в систему не попадают.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do ставить каждый новый элемент на линейку: волосяную 1px (rule) для однородного, тактовую 3px (ink) для закрытия раздела.",
+      "Do считать все отступы кратными шагу линейки 8px и записывать их как calc(var(--step) * n).",
+      "Do держать синий редким: одна плашка, активное указание исполнения, ссылка на источник, фокус. Второй краски в системе нет.",
+      "Do рисовать состояние знаком, весом или линией — нота против паузы, 700 против 400, тушь против разведённой.",
+      "Do выносить рубрику в левое поле стана вертикально (writing-mode: vertical-rl + rotate(180deg)).",
+      "Do рисовать нотные и навигационные знаки SVG в notation.tsx, с currentColor и aria-hidden.",
+      "Do растягивать акколаду через preserveAspectRatio=\"none\" + vector-effect=\"non-scaling-stroke\", чтобы штрих не плыл по высоте.",
+      "Do отдавать курсиву работу: ремарка исполнения, редакторская приписка, переход на следующую страницу.",
+      "Do брать служебный набор одним блоком: Alegreya Sans, прописные, разрядка ≥0.09em, tabular-nums для чисел и времени.",
+      "Do проверять новую гарнитуру на кириллицу и самохостить её в woff2 с сабсетами — интерфейс русский.",
+      "Do оставлять систему собранной на телефоне: поле акколады сужается до 12px, но акколада остаётся.",
+      "Do держать всю моторику на одном затухании cubic-bezier(0.16, 1, 0.3, 1) и уважать prefers-reduced-motion."
+    ],
+    "donts": [
+      "Don't добавлять box-shadow, border-radius, градиенты или полупрозрачные слои — в стилях их ноль, и это инвариант, а не совпадение.",
+      "Don't раскладывать новости сеткой одинаковых карточек: строка стана вместо плитки, всегда.",
+      "Don't вводить цвет состояния — зелёный «сохранено», красный «ошибка», оранжевый «внимание». Ошибка набирается курсивом в квадратных скобках и обводится тушью.",
+      "Don't ставить рубрику или служебную подпись над заголовком: надзаголовок в этой системе запрещён, рубрика уходит в левое поле.",
+      "Don't использовать blue-pale на бумаге — он живёт только на синей плашке.",
+      "Don't набирать музыкальные знаки юникодными символами или иконочным шрифтом.",
+      "Don't вводить третью гарнитуру, моноширинный набор или системный display-шрифт.",
+      "Don't ставить ремарку регистра над текстом, который на самом деле не переписан.",
+      "Don't заводить третью ступень ранга в выпуске: их ровно две — с анонсом и без.",
+      "Don't прятать Missing Anchor: список Anchor показывается целиком, вместе с текстом Rewrite.",
+      "Don't добавлять вторую анимацию: в проекте одна — settle (0.5s, opacity + подъём 6px), и она отмечает только появление переписанного текста.",
+      "Don't оставлять браузерные поверхности неоформленными: выделение, кольцо фокуса и полоса прокрутки берут цвета из палитры."
+    ]
+  }
+}

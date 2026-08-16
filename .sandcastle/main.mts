@@ -52,7 +52,12 @@ const hooks = {
 // Copy node_modules from the host into the worktree before each sandbox
 // starts. Avoids a full npm install from scratch; the hook above handles
 // platform-specific binaries and any packages added since the last copy.
-const copyToWorktree = ["node_modules"];
+//
+// .env carries the application's LLM credentials. It is gitignored, so the
+// worktree would otherwise be missing it and the implementing agent could
+// only ever exercise the no-key stub. Copying keeps /.env the single source
+// of truth — nothing about the app's config lives in .sandcastle/.
+const copyToWorktree = ["node_modules", ".env"];
 
 // ---------------------------------------------------------------------------
 // Main loop

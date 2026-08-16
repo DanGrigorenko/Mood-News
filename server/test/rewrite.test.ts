@@ -6,6 +6,7 @@ import {
   stubRewrite,
   resolveRewrite,
   rewriteSchema,
+  feedbackAccumulator,
 } from '../src/rewrite.ts'
 import type {
   ModelCall,
@@ -14,6 +15,7 @@ import type {
   MeaningCheckOutput,
 } from '../src/llm.ts'
 import type { RewriteBrief } from '../src/prompt.ts'
+import { verdictOf } from '../src/verdict.ts'
 import type { Article } from '../src/rss.ts'
 
 const article: Article = {
@@ -63,6 +65,52 @@ function scriptedReview(outputs: Array<MeaningCheckOutput | null>): {
     calls: () => i,
   }
 }
+
+// --- Накопитель обратной связи Brief (issue #33) ---
+
+// Накопитель — тот самый interface, за которым живёт «что сверки узнали за
+// прошлую попытку»: держит обратную связь между попытками, а async-цикл его не
+// разбирает по полям. next() до первого record() — обратной связи ещё нет
+// (первая попытка вслепую, docs/adr/0009); record() запоминает вердикт попытки.
+
+test('накопитель Brief: до первого record обратной связи нет', () => {
+  const acc = feedbackAccumulator(article)
+  assert.equal(acc.next(), undefined)
+})
+
+test('накопитель Brief: record запоминает потерянный Anchor для следующей попытки', () => {
+  const acc = feedbackAccumulator(article)
+  const lost = { kind: 'number', text: '15%' } as const
+  const out: ModelOutput = { title: 'Собянин выделил 1200 млрд', body: 'Мэр Москвы сообщил о росте в 2026 году.' }
+  acc.record(out, verdictOf({ missing: [lost], similarity: 0, meaningCheck: 'skipped', distortion: '' }))
+
+  const fb = acc.next()!
+  assert.deepEqual(fb.missing.map((a) => a.text), ['15%'])
+  assert.equal(fb.unchanged, false)
+  assert.equal(fb.distortion, '')
+})
+
+test('накопитель Brief: distortion переживает следующий Anchor-провал', () => {
+  // Meaning Check назвал искажение на попытке с целыми Anchor. Следующая попытка
+  // роняет Anchor (Meaning Check по ней не гоняется) — имя искажения обязано
+  // уцелеть, чтобы ретрай его ещё нёс, а не быть затёртым Anchor-провалом.
+  const acc = feedbackAccumulator(article)
+  const distortedOut: ModelOutput = { title: 'т', body: 'т' }
+  acc.record(
+    distortedOut,
+    verdictOf({ missing: [], similarity: 0, meaningCheck: 'failed', distortion: 'рост подменён падением' }),
+  )
+  assert.equal(acc.next()!.distortion, 'рост подменён падением')
+
+  const lost = { kind: 'number', text: '15%' } as const
+  acc.record(
+    { title: 'т', body: 'т' },
+    verdictOf({ missing: [lost], similarity: 0, meaningCheck: 'skipped', distortion: '' }),
+  )
+  const fb = acc.next()!
+  assert.deepEqual(fb.missing.map((a) => a.text), ['15%'])
+  assert.equal(fb.distortion, 'рост подменён падением') // не затёрто Anchor-провалом
+})
 
 // --- Цикл генерации и Fact Check ---
 

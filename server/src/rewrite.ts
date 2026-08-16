@@ -1,7 +1,11 @@
-import { z } from 'zod'
 import type { DatabaseSync } from 'node:sqlite'
-import { extractAnchors, factCheck, anchorSchema, type Anchor } from './anchor.ts'
-import { moodSchema, type Mood } from './mood.ts'
+import { extractAnchors, factCheck, type Anchor } from './anchor.ts'
+import { type Mood } from './mood.ts'
+// Форма Rewrite — часть общего контракта API: описана один раз в shared/api.mts,
+// оттуда её берут и сервер (генерация, кэш), и фронт (разбор ответа). Реэкспорт —
+// чтобы прежние импортёры (db, тесты, eval) не переезжали.
+import { rewriteSchema, rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
+export { rewriteSchema, rewriteResponseSchema, type Rewrite }
 import {
   buildMessages,
   buildMeaningCheckMessages,
@@ -23,37 +27,6 @@ import {
 // Порог непохожести живёт в модуле Verdict (граница «копия / переписано» — часть
 // вердикта). Реэкспорт — чтобы прежние импортёры (тесты, eval) не переезжали.
 export { UNCHANGED_SIMILARITY_THRESHOLD } from './verdict.ts'
-
-// Rewrite — версия Article в конкретном Mood: переписанные заголовок и тело плюс
-// результат Fact Check (число Anchor, список Missing Anchor и число попыток).
-// stub помечает заглушку, отданную без обращения к модели.
-export const rewriteSchema = z.object({
-  mood: moodSchema,
-  title: z.string(),
-  body: z.string(),
-  anchors: z.array(anchorSchema),
-  anchorCount: z.number().int().nonnegative(),
-  missing: z.array(anchorSchema),
-  attempts: z.number().int().nonnegative(),
-  stub: z.boolean(),
-  // Rewrite после всех попыток дословно совпал со Snippet — переписывание не
-  // сработало. Все пять Mood обязаны отличаться от Snippet: после docs/adr/0006
-  // Snippet — полный текст статьи, и нейтральный Rewrite обязан быть его
-  // сжатием (issue #12). Провалившийся Rewrite в кэш не пишется (docs/adr/0008),
-  // но поле остаётся в ответе API для eval и отладки — с экрана оно ушло.
-  unchanged: z.boolean(),
-  // Meaning Check — смысловая сверка Rewrite с источником (docs/adr/0005,
-  // docs/adr/0007): passed — исход события сохранён; failed — найдено искажение
-  // (см. distortion); skipped — сверка не отработала (нет ключа, сбой, не-JSON
-  // от судьи). skipped честно означает «не проверено», а не «пройдено». Как и
-  // unchanged, поле живёт в ответе API для eval, но не показывается читателю
-  // (docs/adr/0008).
-  meaningCheck: z.enum(['passed', 'failed', 'skipped']),
-  // Название найденного искажения (Distortion) — непустое только при
-  // meaningCheck === 'failed'.
-  distortion: z.string(),
-})
-export type Rewrite = z.infer<typeof rewriteSchema>
 
 // Первичная генерация плюс до двух ретраев по Missing Anchor (docs/adr/0002).
 export const MAX_ATTEMPTS = 3

@@ -1,31 +1,23 @@
-import { z } from 'zod'
+// Форма Article и конверты ответов описаны один раз в общем контракте
+// (shared/api.mts) и импортируются сервером и фронтом. articlesSchema —
+// прежнее имя конверта списка статей, сохранено для импортёров.
+import {
+  articleSchema,
+  articlesResponseSchema,
+  ingestResultSchema,
+  type Article,
+} from '../../shared/api.mts'
+import { apiFetch } from './api.ts'
 
-// Форма Article, как её отдаёт сервер. Валидируем zod-ом: пришедшее по сети —
-// внешние данные (CODING_STANDARDS).
-export const articleSchema = z.object({
-  link: z.string().url(),
-  source: z.string(),
-  title: z.string(),
-  announce: z.string(),
-  publishedAt: z.string(),
-})
-
-export type Article = z.infer<typeof articleSchema>
-
-export const articlesSchema = z.object({ articles: z.array(articleSchema) })
-
-const ingestResultSchema = z.object({ added: z.number() })
+export { articleSchema, type Article }
+export const articlesSchema = articlesResponseSchema
 
 export async function fetchArticles(): Promise<Article[]> {
-  const res = await fetch('/api/articles')
-  if (!res.ok) throw new Error(`/api/articles ответил ${res.status}`)
-  return articlesSchema.parse(await res.json()).articles
+  return (await apiFetch('/api/articles', articlesResponseSchema)).articles
 }
 
 export async function runIngest(): Promise<number> {
-  const res = await fetch('/api/ingest', { method: 'POST' })
-  if (!res.ok) throw new Error(`/api/ingest ответил ${res.status}`)
-  return ingestResultSchema.parse(await res.json()).added
+  return (await apiFetch('/api/ingest', ingestResultSchema, { method: 'POST' })).added
 }
 
 // Русская форма числительного «новость» для отчёта кнопки «Обновить».

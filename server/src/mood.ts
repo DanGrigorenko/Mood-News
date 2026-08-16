@@ -1,11 +1,8 @@
-import { z } from 'zod'
-
-// Набор Mood конечен и задан кодом — пользователь не может придумать свой
-// (см. CONTEXT.md). Порядок здесь — порядок, в котором Mood показываются фронту.
-export const MOOD_IDS = ['neutral', 'joyful', 'sad', 'ironic', 'dramatic'] as const
-
-export const moodSchema = z.enum(MOOD_IDS)
-export type Mood = z.infer<typeof moodSchema>
+// Форма Mood (набор id и схема) описана один раз в общем контракте shared/api.mts
+// и импортируется обеими сторонами. Здесь остаётся серверное представление —
+// человеческие названия и регистры — плюс сборка ответа GET /api/moods.
+import { MOOD_IDS, moodSchema, type Mood, type MoodOption } from '../../shared/api.mts'
+export { MOOD_IDS, moodSchema, type Mood }
 
 // Человеческие названия Mood: их отдаёт GET /api/moods, чтобы фронт не дублировал
 // список у себя.
@@ -38,7 +35,7 @@ export const MOOD_REGISTER: Record<Mood, string> = {
 }
 
 // Список Mood с человеческими названиями для GET /api/moods.
-export function moodsPayload(): { moods: Array<{ id: Mood; label: string }> } {
+export function moodsPayload(): { moods: MoodOption[] } {
   return {
     moods: MOOD_IDS.map((id) => ({ id, label: MOOD_LABELS[id] })),
   }

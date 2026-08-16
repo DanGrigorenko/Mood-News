@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { moodSchema, moodsPayload } from '../src/mood.ts'
+import { moodsResponseSchema } from '../../shared/api.mts'
+
+test('moodsPayload удовлетворяет общей схеме ответа /api/moods', () => {
+  // Тот же конверт, которым ответ разбирает фронт (shared/api.mts): расхождение
+  // формы теперь падает здесь, а не пустым экраном.
+  assert.doesNotThrow(() => moodsResponseSchema.parse(moodsPayload()))
+})
 
 test('GET /api/moods отдаёт все пять Mood с человеческими названиями', () => {
   const { moods } = moodsPayload()

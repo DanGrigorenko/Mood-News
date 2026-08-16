@@ -6,6 +6,8 @@ import {
   stubRewrite,
   resolveRewrite,
   rewriteSchema,
+  unchangedSimilarity,
+  UNCHANGED_SIMILARITY_THRESHOLD,
 } from '../src/rewrite.ts'
 import {
   buildMessages,
@@ -31,7 +33,17 @@ const article: Article = {
   publishedAt: '2026-08-16T09:00:00.000Z',
 }
 
-// Anchor этого Snippet: 1200, 15%, 2026, Собян…, Москв…
+// Anchor этого Snippet: 1200, 15%, 2026, Москв… (Собянин и Мэр — в начале
+// предложения, в Anchor не берутся; см. isSentenceStart).
+
+// Полноценное переписывание: все Anchor на месте, тон сменён, формулировки и
+// порядок слов — тоже, поэтому доля уцелевших триграмм ниже порога и unchanged
+// == false (issue #13). Общий «годный Rewrite» для тестов, которым важна не
+// конкретная фраза, а сам факт прохождения сверок.
+const goodRewrite: ModelOutput = {
+  title: 'Хорошие вести для Москвы',
+  body: 'Собянин объявил рост на 15% по итогам 2026 года — на город направили 1200 млрд рублей.',
+}
 
 // Модель, отдающая заранее заданную последовательность выводов (или null).
 function scriptedModel(outputs: Array<ModelOutput | null>): {
@@ -64,11 +76,7 @@ function scriptedReview(outputs: Array<MeaningCheckOutput | null>): {
 // --- Цикл генерации и Fact Check ---
 
 test('генерация проходит с первой попытки, когда все Anchor на месте', async () => {
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы сообщил о росте на 15% в 2026 году — прекрасно!',
-  }
-  const model = scriptedModel([good])
+  const model = scriptedModel([goodRewrite])
   const rewrite = await generateRewrite(article, 'joyful', model.call, okReview)
 
   assert.equal(rewrite.attempts, 1)
@@ -84,10 +92,7 @@ test('при потерянном Anchor следует ретрай, назва
     title: 'Собянин выделил 1200 млрд',
     body: 'Мэр Москвы сообщил о росте в 2026 году.',
   }
-  const fixed: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы сообщил о росте на 15% в 2026 году.',
-  }
+  const fixed = goodRewrite
   const model = scriptedModel([lost, fixed])
   const rewrite = await generateRewrite(article, 'sad', model.call, okReview)
 
@@ -154,8 +159,8 @@ test('переписанный текст, отличающийся от Snippet
 test('совпадение со Snippet исправляется ретраем', async () => {
   const echo: ModelOutput = { title: article.title, body: article.announce }
   const changed: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Как грустно: Мэр Москвы сообщил о росте всего на 15% в 2026 году.',
+    title: 'Грустные итоги для Москвы',
+    body: 'Как ни печально, Собянин признал прибавку лишь на 15% за 2026 год — всего 1200 млрд рублей.',
   }
   const model = scriptedModel([echo, changed])
   const rewrite = await generateRewrite(article, 'sad', model.call, okReview)
@@ -169,8 +174,8 @@ test('Mood neutral тоже обязан отличаться от Snippet — �
   // обязан быть его сжатием, а не побуквенной копией (issue #12).
   const echo: ModelOutput = { title: article.title, body: article.announce }
   const changed: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд рублей',
-    body: 'Мэр Москвы отчитался о росте на 15% за 2026 год.',
+    title: 'Бюджет Москвы: итоги',
+    body: 'По данным Собянина, за 2026 год показатель прибавил 15%; на это ушло 1200 млрд рублей.',
   }
   const model = scriptedModel([echo, changed])
   const rewrite = await generateRewrite(article, 'neutral', model.call, okReview)
@@ -202,12 +207,8 @@ test('ретрай при совпадении сообщает модели, ч
 })
 
 test('невалидный JSON — ещё одна неудачная попытка, а не сбой', async () => {
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы сообщил о росте на 15% в 2026 году.',
-  }
   // Первый ответ не-JSON (null), второй валиден.
-  const model = scriptedModel([null, good])
+  const model = scriptedModel([null, goodRewrite])
   const rewrite = await generateRewrite(article, 'neutral', model.call, okReview)
 
   assert.equal(rewrite.attempts, 2)
@@ -219,19 +220,72 @@ test('если модель ни разу не вернула валидный J
   await assert.rejects(() => generateRewrite(article, 'neutral', model.call, okReview), /валидный JSON/)
 })
 
+// --- Мера непохожести: доля уцелевших словесных триграмм (issue #13) ---
+
+test('unchangedSimilarity: копия Snippet даёт максимум', () => {
+  const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'
+  assert.equal(unchangedSimilarity(snippet, snippet), 1)
+})
+
+test('unchangedSimilarity: перестановка слов и пара синонимов всё ещё выше порога', () => {
+  const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'
+  // Заменены два слова, порядок в основном сохранён — это ещё копия по сути.
+  const near = 'Мэр Москвы заявил о росте на 15 процентов в 2026 году подряд'
+  assert.ok(unchangedSimilarity(near, snippet) >= UNCHANGED_SIMILARITY_THRESHOLD)
+})
+
+test('unchangedSimilarity: настоящее переписывание — ниже порога', () => {
+  const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'
+  const real = 'За 2026 год столичный показатель прибавил 15 процентов — так отчитались власти'
+  assert.ok(unchangedSimilarity(real, snippet) < UNCHANGED_SIMILARITY_THRESHOLD)
+})
+
+// Реальный случай со скриншота (issue #13): срез шапки «МОСКВА, 16 авг» → «16
+// августа» — формально изменение, и сравнение на тождество его пропускало. Мера
+// непохожести обязана считать это unchanged: почти весь текст уцелел дословно.
+test('unchangedSimilarity: замена шапки на дату — по-прежнему unchanged', () => {
+  const snippet =
+    'МОСКВА, 16 авг - РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление'
+  const copy =
+    '16 августа. РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление'
+  assert.notEqual(snippet, copy) // на тождество — разные строки
+  assert.ok(unchangedSimilarity(copy, snippet) >= UNCHANGED_SIMILARITY_THRESHOLD)
+})
+
+test('Rewrite выше порога непохожести уходит в ретрай и не кэшируется', async () => {
+  const db = openDb(':memory:')
+  insertArticles(db, [article])
+  // Переставленные слова при сохранённых формулировках — выше порога, значит
+  // unchanged: тот же путь, что и у точного совпадения.
+  const nearCopy: ModelOutput = {
+    title: article.title,
+    body: 'Мэр Москвы сообщил о росте в 2026 году на 15%.',
+  }
+  const model = scriptedModel([nearCopy, nearCopy, nearCopy])
+  const first = await resolveRewrite(db, article, 'joyful', {
+    callModel: model.call,
+    meaningCheckModel: okReview,
+    useStub: false,
+  })
+
+  assert.equal(first.unchanged, true)
+  assert.equal(getRewrite(db, article.link, 'joyful'), undefined)
+})
+
 // --- Смысловая сверка вторым проходом (issue #10) ---
 
-// Искажённый Rewrite: все Anchor (1200, 15%, 2026, Собян…, Москв…) на месте, но
-// «рост» подменён «падением» — Anchor-сверка его пропускает, ловит второй проход.
+// Искажённый Rewrite: все Anchor (1200, 15%, 2026, Москв…) на месте и текст
+// переписан (unchanged проходит), но исход перевёрнут — «рост» стал «падением».
+// Anchor-сверка и мера непохожести его пропускают, ловит второй проход.
 const distorted: ModelOutput = {
-  title: 'Собянин выделил 1200 млрд',
-  body: 'Мэр Москвы сообщил о падении на 15% в 2026 году.',
+  title: 'Москва в минусе',
+  body: 'Собянин признал падение на 15% по итогам 2026 года: из 1200 млрд рублей толку не вышло.',
 }
 
 test('искажение смысла при целых Anchor не принимается с первой попытки', async () => {
   const corrected: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы с грустью сообщил о росте на 15% в 2026 году.',
+    title: 'Грустные итоги для Москвы',
+    body: 'Собянин с печалью подвёл 2026 год: показатель прибавил всего 15%, освоено 1200 млрд рублей.',
   }
   const model = scriptedModel([distorted, corrected])
   const review = scriptedReview([
@@ -279,10 +333,7 @@ test('неустранённое искажение остаётся в отве
 })
 
 test('сбой второго прохода не роняет запрос — сверка честно помечена skipped', async () => {
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы радостно сообщил о росте на 15% в 2026 году!',
-  }
+  const good = goodRewrite
   const model = scriptedModel([good])
   const failing: MeaningCheckCall = async () => {
     throw new Error('смысловая сверка недоступна: сеть')
@@ -295,10 +346,7 @@ test('сбой второго прохода не роняет запрос — 
 })
 
 test('судья Meaning Check вернул не-JSON — сверка честно skipped', async () => {
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы радостно сообщил о росте на 15% в 2026 году!',
-  }
+  const good = goodRewrite
   const model = scriptedModel([good])
   const review = scriptedReview([null])
   const rewrite = await generateRewrite(article, 'joyful', model.call, review.call)
@@ -346,10 +394,7 @@ test('промпт Meaning Check: словоформы не считаются �
 test('второй проход платится один раз на пару Article + Mood', async () => {
   const db = openDb(':memory:')
   insertArticles(db, [article])
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы радостно сообщил о росте на 15% в 2026 году!',
-  }
+  const good = goodRewrite
   const model = scriptedModel([good])
   const review = scriptedReview([{ consistent: true, distortion: '' }])
 
@@ -366,10 +411,7 @@ test('второй проход платится один раз на пару A
 test('meaningCheck и distortion прошедшего сверку Rewrite переживают кэш', async () => {
   const db = openDb(':memory:')
   insertArticles(db, [article])
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы радостно сообщил о росте на 15% в 2026 году!',
-  }
+  const good = goodRewrite
   const model = scriptedModel([good])
   const review = scriptedReview([{ consistent: true, distortion: '' }])
   await resolveRewrite(db, article, 'joyful', {
@@ -438,10 +480,7 @@ test('unchanged Rewrite в кэш не пишется', async () => {
 test('skipped Meaning Check в кэш не пишется наравне с failed', async () => {
   const db = openDb(':memory:')
   insertArticles(db, [article])
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы радостно сообщил о росте на 15% в 2026 году!',
-  }
+  const good = goodRewrite
   const model = scriptedModel([good])
   const failing: MeaningCheckCall = async () => {
     throw new Error('смысловая сверка недоступна')
@@ -474,10 +513,7 @@ test('заглушка проходит Fact Check, помечена stub и н�
 test('промах кэша генерирует, попадание читает из базы без модели', async () => {
   const db = openDb(':memory:')
   insertArticles(db, [article])
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы сообщил о росте на 15% в 2026 году.',
-  }
+  const good = goodRewrite
   const model = scriptedModel([good])
 
   const first = await resolveRewrite(db, article, 'joyful', {
@@ -511,10 +547,7 @@ test('заглушка не попадает в кэш под видом нас�
 
 test('сгенерированный Rewrite переживает перезапуск (файловая база)', async () => {
   const path = `test/tmp-rewrite-${process.pid}.db`
-  const good: ModelOutput = {
-    title: 'Собянин выделил 1200 млрд',
-    body: 'Мэр Москвы сообщил о росте на 15% в 2026 году.',
-  }
+  const good = goodRewrite
   try {
     const db = openDb(path)
     insertArticles(db, [article])
@@ -551,6 +584,57 @@ test('промпт кладёт список Anchor и правило «цифр
   assert.match(all, /15%/)
   assert.match(all, /цифрами/)
   assert.match(all, /ирони/i) // текст регистра ironic вложен
+})
+
+test('промпт требует дословности для чисел, но лишь присутствия — для имён (issue #13)', () => {
+  const messages = buildMessages({
+    mood: 'neutral',
+    title: article.title,
+    announce: article.announce,
+    anchors: [
+      { kind: 'number', text: '15%' },
+      { kind: 'quote', text: 'дословная цитата' },
+      { kind: 'name', text: 'Мойзесу' },
+    ],
+    missing: [],
+  })
+  const system = messages.find((m) => m.role === 'system')!.content
+  // Числа и цитаты — дословно.
+  assert.match(system, /ДОСЛОВНО[^\n]*15%/)
+  assert.match(system, /ДОСЛОВНО[^\n]*дословная цитата/)
+  // Имена — присутствие без требования формы: разрешено склонять.
+  assert.match(system, /имена собственные[^\n]*склонять[^\n]*Мойзесу/i)
+  // «Мойзесу» не попадает в строку с требованием дословности.
+  const verbatimLine = system.split('\n').find((l) => l.includes('ДОСЛОВНО'))!
+  assert.doesNotMatch(verbatimLine, /Мойзесу/)
+})
+
+test('промпт запрещает приписывать факты списком в конце (issue #13)', () => {
+  const messages = buildMessages({
+    mood: 'joyful',
+    title: article.title,
+    announce: article.announce,
+    anchors: [],
+    missing: [],
+  })
+  const system = messages.find((m) => m.role === 'system')!.content
+  assert.match(system, /списк|перечн/i)
+})
+
+test('ретрай по потерянному имени разрешает склонение, а по числу — нет', () => {
+  const messages = buildMessages({
+    mood: 'sad',
+    title: article.title,
+    announce: article.announce,
+    anchors: [],
+    missing: [
+      { kind: 'number', text: '15%' },
+      { kind: 'name', text: 'Мойзесу' },
+    ],
+  })
+  const user = messages.find((m) => m.role === 'user')!.content
+  assert.match(user, /дословно[^\n]*15%/)
+  assert.match(user, /склонять[^\n]*Мойзесу/)
 })
 
 test('промпт защищает исход события (Outcome) и запрещает глумиться над пострадавшими', () => {

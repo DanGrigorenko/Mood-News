@@ -38,6 +38,18 @@ function anchorList(anchors: Anchor[]): string {
   return anchors.map((a) => `«${a.text}»`).join(', ')
 }
 
+// Anchor вида name сверяется isPresent по первым пяти символам — падеж нам
+// безразличен (см. anchor.ts). Промпт же требовал их дословно, в исходной форме,
+// и тем самым диктовал конструкцию всей фразы. Требование дословности
+// расщепляется по виду Anchor: числа, даты, суммы и цитаты — дословно; имена
+// собственные — обязательны, но склонять их разрешено (issue #13).
+function verbatimAnchors(anchors: Anchor[]): Anchor[] {
+  return anchors.filter((a) => a.kind !== 'name')
+}
+function nameAnchors(anchors: Anchor[]): Anchor[] {
+  return anchors.filter((a) => a.kind === 'name')
+}
+
 // Промпт задаёт эмоциональный регистр и жёсткие правила сохранности фактов.
 // Явный список Anchor кладётся в запрос: они обязаны присутствовать дословно.
 // Числа и даты — только цифрами, иначе детерминированная сверка разваливается
@@ -66,11 +78,21 @@ export function buildMessages(opts: {
     'Не переворачивай исход события: упало значит упало, погиб значит погиб, отклонено значит отклонено. Направление, результат и того, кто совершил действие, не меняй — даже ради регистра.',
     // Общий пол на все Mood.
     'Не глумись над пострадавшими: над бедой людей не насмешничай, регистр — это тон рассказчика, а не издёвка над теми, кому плохо.',
+    // Приписка вида «ЦСКА. Мойзесу. Новости.» в конце — попытка удовлетворить
+    // дословность в обход переписывания. Называем это явно (issue #13).
+    'Не приписывай факты списком или перечнем в конце текста: факты должны быть вплетены в связные предложения, а не свалены отдельными словами.',
     'Верни простой текст без markdown-разметки: без звёздочек **, подчёркиваний _ и решёток #.',
   ]
-  if (opts.anchors.length > 0) {
+  const verbatim = verbatimAnchors(opts.anchors)
+  const names = nameAnchors(opts.anchors)
+  if (verbatim.length > 0) {
     rules.push(
-      `Эти фрагменты обязаны присутствовать в ответе ДОСЛОВНО: ${anchorList(opts.anchors)}.`,
+      `Эти фрагменты — числа, даты, суммы, цитаты — обязаны присутствовать в ответе ДОСЛОВНО: ${anchorList(verbatim)}.`,
+    )
+  }
+  if (names.length > 0) {
+    rules.push(
+      `Эти имена собственные обязаны присутствовать, но их можно склонять — менять падеж, число и род по смыслу фразы: ${anchorList(names)}.`,
     )
   }
 
@@ -84,9 +106,20 @@ export function buildMessages(opts: {
 
   const userParts = [`Заголовок: ${opts.title}`, `Текст: ${opts.announce}`]
   if (opts.missing.length > 0) {
-    userParts.push(
-      `В прошлой попытке потеряны обязательные фрагменты — верни их дословно: ${anchorList(opts.missing)}.`,
-    )
+    // Тот же раскол по виду Anchor, что и в правилах: числа/даты/цитаты — верни
+    // дословно, имена — верни, но склонять их можно (issue #13).
+    const missingVerbatim = verbatimAnchors(opts.missing)
+    const missingNames = nameAnchors(opts.missing)
+    if (missingVerbatim.length > 0) {
+      userParts.push(
+        `В прошлой попытке потеряны обязательные фрагменты — верни их дословно: ${anchorList(missingVerbatim)}.`,
+      )
+    }
+    if (missingNames.length > 0) {
+      userParts.push(
+        `В прошлой попытке потеряны имена — верни их, склонять можно: ${anchorList(missingNames)}.`,
+      )
+    }
   }
   if (opts.unchanged) {
     userParts.push(

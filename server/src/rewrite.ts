@@ -66,12 +66,49 @@ function normalize(text: string): string {
     .trim()
 }
 
-// Совпал ли Rewrite со Snippet дословно (по нормализованному тексту). Сравнение
-// идёт по объединению заголовка и тела — так же, как Fact Check.
+// Порог непохожести: Rewrite считается unchanged, если доля словесных триграмм
+// Snippet, дословно уцелевших в нём, не ниже порога (issue #13). Копия даёт около
+// единицы, честное переписывание — заметно меньше: меняются и формулировки, и
+// порядок слов. Именованная константа — калибруется по eval. Половина —
+// стартовое значение: строгое сравнение на тождество («МОСКВА, 16 авг» → «16
+// августа» уже формально изменение) пропускало копии, триграммы их ловят.
+export const UNCHANGED_SIMILARITY_THRESHOLD = 0.5
+
+// Словесные триграммы нормализованного текста: тройки соседних слов. Одиночные
+// слова для меры непохожести не годятся — новость обязана переиспользовать
+// существительные события, и по униграммам честный Rewrite неотличим от копии.
+function wordTrigrams(text: string): string[] {
+  const words = normalize(text).split(' ').filter(Boolean)
+  const grams: string[] = []
+  for (let i = 0; i + 3 <= words.length; i++) {
+    grams.push(words.slice(i, i + 3).join(' '))
+  }
+  return grams
+}
+
+// Доля словесных триграмм Snippet, дословно уцелевших в Rewrite (0…1). Чистая
+// функция: сравнение идёт по склейке заголовка и тела — так же, как Fact Check.
+// Snippet короче трёх слов триграмм не даёт — тогда падаем на сравнение на
+// тождество нормализованных строк (порог длины Ingest такого не пропустит, но
+// функция обязана быть тотальной).
+export function unchangedSimilarity(rewrite: string, snippet: string): number {
+  const snippetGrams = wordTrigrams(snippet)
+  if (snippetGrams.length === 0) {
+    return normalize(rewrite) === normalize(snippet) ? 1 : 0
+  }
+  const rewriteGrams = new Set(wordTrigrams(rewrite))
+  const kept = snippetGrams.filter((g) => rewriteGrams.has(g)).length
+  return kept / snippetGrams.length
+}
+
+// Слишком ли похож Rewrite на Snippet, чтобы считать его переписыванием.
+// Сравнение идёт по объединению заголовка и тела — так же, как Fact Check.
 function matchesSnippet(title: string, body: string, article: Article): boolean {
   return (
-    normalize(`${title}\n${body}`) ===
-    normalize(`${article.title}\n${article.announce}`)
+    unchangedSimilarity(
+      `${title}\n${body}`,
+      `${article.title}\n${article.announce}`,
+    ) >= UNCHANGED_SIMILARITY_THRESHOLD
   )
 }
 

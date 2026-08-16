@@ -1,7 +1,41 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { summarize, formatSummary } from '../eval/aggregate.ts'
 import type { Rewrite } from '../src/rewrite.ts'
+import { MIN_SNIPPET_LENGTH } from '../src/ingest.ts'
+
+// Корпус eval — данные с диска; читаем его так же, как раннер.
+type CorpusEntry = { id: string; link: string; announce: string }
+const corpus = JSON.parse(
+  readFileSync(fileURLToPath(new URL('../eval/corpus.json', import.meta.url)), 'utf8'),
+) as CorpusEntry[]
+
+// --- Корпус снят с реальных Article и проходит порог длины (issue #13) ---
+
+test('все записи корпуса проходят порог длины Snippet', () => {
+  for (const entry of corpus) {
+    assert.ok(
+      entry.announce.length >= MIN_SNIPPET_LENGTH,
+      `${entry.id}: ${entry.announce.length} < ${MIN_SNIPPET_LENGTH}`,
+    )
+  }
+})
+
+test('ссылки корпуса не из зоны eval.local — корпус снят с реальных Article', () => {
+  for (const entry of corpus) {
+    assert.doesNotMatch(entry.link, /eval\.local/, `${entry.id} всё ещё выдуман`)
+  }
+})
+
+test('в корпусе есть случай у самой границы порога длины', () => {
+  const shortest = Math.min(...corpus.map((e) => e.announce.length))
+  // Худший допустимый вход: над порогом, но у самой границы, а не только
+  // удобные длинные тексты (issue #13).
+  assert.ok(shortest >= MIN_SNIPPET_LENGTH)
+  assert.ok(shortest < MIN_SNIPPET_LENGTH + 50, `граничный кейс далёк от порога: ${shortest}`)
+})
 
 // Выдуманный Rewrite с управляемыми исходами трёх проверок — раннер eval сам
 // ходит в живую модель и тестами не покрывается, проверяется только агрегация

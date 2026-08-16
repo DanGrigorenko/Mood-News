@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { openDb, listArticles, countArticles, getArticle, insertArticles } from '../src/db.ts'
-import { ingest } from '../src/ingest.ts'
+import { ingest, stripAgencyHeader, MIN_SNIPPET_LENGTH } from '../src/ingest.ts'
+import { extractAnchors } from '../src/anchor.ts'
 
 // Лента отдаёт только Snippet (заголовок + анонс); полный текст Ingest забирает
 // со страницы (issue #11). Источник в тестах — Коммерсантъ: его страница —
@@ -16,13 +17,20 @@ const feedXml = (n: number) => `<?xml version="1.0"?>
       <pubDate>Mon, 16 Aug 2026 10:00:00 +0300</pubDate></item>
   </channel></rss>`
 
-// Полноценная страница Коммерсанта: текст длиннее порога, лежит в doc__text.
+// Полноценная страница Коммерсанта: текст длиннее порога MIN_SNIPPET_LENGTH,
+// лежит в doc__text. Три абзаца, чтобы уверенно перевалить за 500 символов —
+// короткая заметка в базу больше не попадает (issue #13).
 const fullPage = (n: number) => `<html><body>
   <nav>Меню</nav>
   <p class="doc__text">Полный текст статьи ${n}: подробное изложение события с деталями,
     именами и числами, которого хватает, чтобы переписать под настроение и сверить факты,
-    а не сочинять недостающее из голого заголовка. Абзац первый.</p>
-  <p class="doc__text">Второй абзац статьи ${n} с продолжением и уточнениями обстоятельств.</p>
+    а не сочинять недостающее из голого заголовка. Абзац первый рассказывает обстоятельства
+    и называет действующих лиц, не сваливая факты в перечень.</p>
+  <p class="doc__text">Второй абзац статьи ${n} продолжает изложение, уточняет обстоятельства
+    произошедшего и приводит слова участников, чтобы у пяти регистров было пространство
+    разойтись, а не тесниться в одном предложении.</p>
+  <p class="doc__text">Третий абзац статьи ${n} подводит промежуточный итог и описывает, что
+    будет дальше и какие последствия ожидаются в ближайшее время.</p>
 </body></html>`
 
 const komFeed = [{ url: 'https://k.test/rss', source: 'Коммерсантъ' }]
@@ -126,6 +134,89 @@ test('ingest сообщает о ходе работы через onProgress', a
 
   assert.ok(messages.length > 0, 'onProgress должен быть вызван хотя бы раз')
   assert.ok(messages.some((m) => m.includes('Коммерсантъ')))
+})
+
+// --- Срез служебной шапки агентства (issue #13) ---
+
+test('дательная шапка РИА срезается из начала текста', () => {
+  const sliced = stripAgencyHeader(
+    'МОСКВА, 16 авг - РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление.',
+  )
+  assert.equal(sliced, 'Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление.')
+})
+
+test('текст без шапки не меняется ни на символ', () => {
+  const text = 'Обычная новость без шапки: событие произошло сегодня в центре Москвы.'
+  assert.equal(stripAgencyHeader(text), text)
+})
+
+test('строка, похожая на шапку, но в середине текста, не трогается', () => {
+  const text = 'Компания сообщила: МОСКВА, 16 авг - РИА Новости. это не начало, а середина.'
+  assert.equal(stripAgencyHeader(text), text)
+})
+
+test('после среза шапки у заметки про Мойзеса остаётся два Anchor вместо шести', () => {
+  const withHeader =
+    'МОСКВА, 16 авг - РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление.'
+  const before = extractAnchors(withHeader)
+  const after = extractAnchors(stripAgencyHeader(withHeader))
+
+  assert.ok(before.length > after.length) // шапка давала лишние Anchor
+  assert.equal(after.length, 2) // остаются факты истории — ЦСКА и Мойзес
+  assert.deepEqual(
+    after.map((a) => a.text).sort(),
+    ['Мойзесу', 'ЦСКА'],
+  )
+})
+
+// --- Порог длины Snippet при Ingest (issue #13) ---
+
+// Страница РИА: текст лежит в div.article__text. Длину текста задаём явно, чтобы
+// проверять порог MIN_SNIPPET_LENGTH точно.
+const riaFeed = [{ url: 'https://ria.test/rss', source: 'РИА Новости' }]
+const riaFeedXml = `<?xml version="1.0"?>
+  <rss version="2.0"><channel>
+    <item><title>Заметка</title><link>https://ria.test/1</link>
+      <description>анонс</description>
+      <pubDate>Mon, 16 Aug 2026 09:00:00 +0300</pubDate></item>
+  </channel></rss>`
+const riaPage = (body: string) =>
+  `<html><body><div class="article__text">${body}</div></body></html>`
+
+async function ingestRia(body: string) {
+  const db = openDb(':memory:')
+  const result = await ingest(db, {
+    feeds: riaFeed,
+    fetchFeed: async () => riaFeedXml,
+    fetchPage: async () => riaPage(body),
+  })
+  return { db, result }
+}
+
+test('Article короче порога длины в базу не попадает и считается skipped', async () => {
+  const { db, result } = await ingestRia('я'.repeat(MIN_SNIPPET_LENGTH - 1))
+  assert.equal(result.added, 0)
+  assert.equal(result.skipped, 1)
+  assert.equal(countArticles(db), 0)
+})
+
+test('Article ровно на пороге длины попадает в базу', async () => {
+  const { db, result } = await ingestRia('я'.repeat(MIN_SNIPPET_LENGTH))
+  assert.equal(result.added, 1)
+  assert.equal(result.skipped, 0)
+  assert.equal(countArticles(db), 1)
+})
+
+test('длина считается после среза шапки, а не до', async () => {
+  // Сырой текст длиннее порога, но почти весь — шапка: после среза остаётся
+  // короткий хвост, и Article отсеивается. Мерь мы до среза — она бы прошла.
+  const header = 'МОСКВА, 16 авг - РИА Новости. '
+  const tail = 'я'.repeat(MIN_SNIPPET_LENGTH - 20) // хвост короче порога
+  assert.ok(header.length + tail.length >= MIN_SNIPPET_LENGTH) // до среза — прошла бы
+  const { db, result } = await ingestRia(header + tail)
+  assert.equal(result.added, 0) // после среза хвост короче порога
+  assert.equal(result.skipped, 1)
+  assert.equal(countArticles(db), 1 - 1)
 })
 
 test('уже сохранённая Article с пустым анонсом не отдаётся в выдаче', () => {

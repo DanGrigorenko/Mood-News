@@ -77,6 +77,17 @@ export function getArticle(db: DatabaseSync, link: string): Article | undefined 
   return row ? articleSchema.parse(row) : undefined
 }
 
+// Форма строки таблицы rewrites: anchors и missing — JSON-строки, остальное как есть.
+type RewriteRow = {
+  mood: string
+  title: string
+  body: string
+  anchors: string
+  missing: string
+  anchor_count: number
+  attempts: number
+}
+
 // Чтение Rewrite из кэша. Данные наши же, записанные insertRewrite ниже, поэтому
 // собираем объект напрямую; anchors и missing лежат JSON-строками.
 export function getRewrite(
@@ -85,18 +96,11 @@ export function getRewrite(
   mood: Mood,
 ): Rewrite | undefined {
   const row = db
-    .prepare(`SELECT * FROM rewrites WHERE link = ? AND mood = ?`)
-    .get(link, mood) as
-    | {
-        mood: string
-        title: string
-        body: string
-        anchors: string
-        missing: string
-        anchor_count: number
-        attempts: number
-      }
-    | undefined
+    .prepare(
+      `SELECT mood, title, body, anchors, missing, anchor_count, attempts
+       FROM rewrites WHERE link = ? AND mood = ?`,
+    )
+    .get(link, mood) as RewriteRow | undefined
   if (!row) return undefined
   return {
     mood: row.mood as Mood,

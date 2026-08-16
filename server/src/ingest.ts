@@ -30,15 +30,12 @@ export type IngestOptions = {
   onProgress?: (message: string) => void
 }
 
-async function fetchFeedOverHttp(url: string): Promise<string> {
+// Один HTTP-GET с нашим user-agent для ленты и для страницы публикации. what —
+// «лента» или «страница», подставляется в сообщение об ошибке (оба слова
+// женского рода — «ответила»).
+async function fetchOverHttp(url: string, what: string): Promise<string> {
   const res = await fetch(url, { headers: { 'user-agent': 'mood-news/1.0' } })
-  if (!res.ok) throw new Error(`лента ${url} ответила ${res.status}`)
-  return res.text()
-}
-
-async function fetchPageOverHttp(url: string): Promise<string> {
-  const res = await fetch(url, { headers: { 'user-agent': 'mood-news/1.0' } })
-  if (!res.ok) throw new Error(`страница ${url} ответила ${res.status}`)
+  if (!res.ok) throw new Error(`${what} ${url} ответила ${res.status}`)
   return res.text()
 }
 
@@ -56,21 +53,22 @@ export async function ingest(
   options: IngestOptions = {},
 ): Promise<IngestResult> {
   const feeds = options.feeds ?? FEEDS
-  const fetchFeed = options.fetchFeed ?? fetchFeedOverHttp
-  const fetchPage = options.fetchPage ?? fetchPageOverHttp
+  const fetchFeed = options.fetchFeed ?? ((url) => fetchOverHttp(url, 'лента'))
+  const fetchPage = options.fetchPage ?? ((url) => fetchOverHttp(url, 'страница'))
   const onProgress = options.onProgress ?? (() => {})
 
   let added = 0
   let skipped = 0
   for (const feed of feeds) {
-    let items
+    let xml: string
     try {
-      const xml = await fetchFeed(feed.url)
-      items = parseFeed(xml, feed.source)
+      xml = await fetchFeed(feed.url)
     } catch (err) {
       console.error(`Ingest ленты ${feed.source} провалился:`, err)
       continue
     }
+    // parseFeed — чистая функция, на битом XML возвращает [], а не бросает (rss.ts).
+    const items = parseFeed(xml, feed.source)
 
     onProgress(`${feed.source}: ${items.length} публикаций, забираю тексты…`)
 

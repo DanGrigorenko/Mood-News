@@ -1,4 +1,9 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+} from 'react'
 import {
   fetchArticles,
   runIngest,
@@ -8,7 +13,8 @@ import {
   type Article,
 } from './articles.ts'
 import { fetchMoods, type Mood } from './moods.ts'
-import { fetchRewrite, factCheckSummary, type Rewrite } from './rewrite.ts'
+import { factCheckSummary, type Rewrite } from './rewrite.ts'
+import { createRewriteStore } from './useRewrite.ts'
 import { useRoute } from './route.ts'
 import { AnchorMark, ArrowBack, ArrowOut, Brace } from './notation.tsx'
 
@@ -43,38 +49,22 @@ function navigate(
   go(link)
 }
 
-// Rewrite для пары «Article + Mood». Генерация ленивая и может упасть (модель
-// недоступна, лимит запросов), поэтому наружу отдаём и ошибку, и способ
-// повторить.
-function useRewrite(link: string | undefined, mood: string) {
-  const [rewrite, setRewrite] = useState<Rewrite | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState(0)
-
-  // cancelled гасит гонку, если Mood переключили быстрее, чем пришёл ответ.
+// Rewrite для пары «Article + Mood». Логика состояния — гашение гонки при
+// быстром переключении Mood, ошибка, повтор — живёт отдельным module
+// useRewrite.ts и проверяется без React и без DOM (issue #25). Здесь только
+// подписка на его состояние: select переспрашивает Rewrite при смене пары.
+function useRewrite(link: string, mood: string) {
+  const [store] = useState(createRewriteStore)
+  const state = useSyncExternalStore(store.subscribe, store.getState)
   useEffect(() => {
-    if (link === undefined) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    setRewrite(null)
-    fetchRewrite(link, mood)
-      .then((r) => {
-        if (!cancelled) setRewrite(r)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [link, mood, attempt])
-
-  return { rewrite, loading, error, retry: () => setAttempt(attempt + 1) }
+    store.select(link, mood)
+  }, [store, link, mood])
+  return {
+    rewrite: state.rewrite,
+    loading: state.loading,
+    error: state.error,
+    retry: store.retry,
+  }
 }
 
 function Retry(props: { onClick: () => void }) {

@@ -10,6 +10,19 @@ import {
 } from './llm.ts'
 import type { Article } from './rss.ts'
 import { getRewrite, insertRewrite } from './db.ts'
+import {
+  verdictOf,
+  betterVerdict,
+  accepted,
+  anchorsPassed,
+  fitForCache,
+  type MeaningCheck,
+  type Verdict,
+} from './verdict.ts'
+
+// Порог непохожести живёт в модуле Verdict (граница «копия / переписано» — часть
+// вердикта). Реэкспорт — чтобы прежние импортёры (тесты, eval) не переезжали.
+export { UNCHANGED_SIMILARITY_THRESHOLD } from './verdict.ts'
 
 // Rewrite — версия Article в конкретном Mood: переписанные заголовок и тело плюс
 // результат Fact Check (число Anchor, список Missing Anchor и число попыток).
@@ -65,14 +78,6 @@ function normalize(text: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
 }
-
-// Порог непохожести: Rewrite считается unchanged, если доля словесных триграмм
-// Snippet, дословно уцелевших в нём, не ниже порога (issue #13). Копия даёт около
-// единицы, честное переписывание — заметно меньше: меняются и формулировки, и
-// порядок слов. Именованная константа — калибруется по eval. Половина —
-// стартовое значение: строгое сравнение на тождество («МОСКВА, 16 авг» → «16
-// августа» уже формально изменение) пропускало копии, триграммы их ловят.
-export const UNCHANGED_SIMILARITY_THRESHOLD = 0.5
 
 // Прямая речь вырезается перед сравнением: цитата обязана пережить
 // переписывание дословно (Anchor вида quote), и её уцелевшие триграммы говорят о
@@ -155,41 +160,23 @@ function similarityTo(title: string, body: string, article: Article): number {
   )
 }
 
-// Одна попытка со всем, что о ней известно: по этим полям попытки и сравниваются.
+// Одна попытка: переписанный текст плюс его вердикт. По вердикту попытки и
+// сравниваются, и решают, ретраить ли, и годятся ли в кэш (module Verdict,
+// issue #18/#20). Ретрай просит вернуть потерянное, сохранив регистр, но на деле
+// тянет текст обратно к формулировкам источника: третья попытка сплошь и рядом
+// набирает все Anchor ценой того, что становится почти копией (замер на живой
+// модели: sim 0.19 на первой попытке против 0.93 на третьей). Поэтому отдаём
+// лучшую попытку, а не последнюю — betterVerdict хранит порядок важности.
 type Attempt = {
   title: string
   body: string
-  missing: Anchor[]
-  unchanged: boolean
-  similarity: number
-  meaningCheck: Rewrite['meaningCheck']
-  distortion: string
+  verdict: Verdict
 }
 
-// Ранг попытки: чем меньше, тем лучше. Ретрай просит вернуть потерянное,
-// сохранив регистр, но на деле тянет текст обратно к формулировкам источника:
-// третья попытка сплошь и рядом набирает все Anchor ценой того, что становится
-// почти копией (замер на живой модели: sim 0.19 на первой попытке против 0.93 на
-// третьей). Поэтому отдаём лучшую попытку, а не последнюю.
-//
-// Порядок важности — по тому, что читатель получает на экране. Копия Snippet
-// хуже всего: это не Rewrite вовсе, а источник под вывеской «переписано».
-// Дальше искажение исхода — оно неправда. Потерянный Anchor мягче обоих: Fact
-// Check показывает его честно («факты сохранены: 13/14»), и текст при этом
-// остаётся настоящим переписыванием. Ни одна из этих попыток не кэшируется —
-// ранг решает лишь, что показать, пока чистого результата нет.
-function rank(a: Attempt): [number, number, number] {
-  return [a.unchanged ? 1 : 0, a.meaningCheck === 'failed' ? 1 : 0, a.missing.length]
-}
-
-// Лучшая из двух попыток: сначала по рангу, при равенстве — та, что дальше от
-// Snippet.
-function better(a: Attempt, b: Attempt): Attempt {
-  const [ra, rb] = [rank(a), rank(b)]
-  for (let i = 0; i < ra.length; i++) {
-    if (ra[i]! !== rb[i]!) return ra[i]! < rb[i]! ? a : b
-  }
-  return a.similarity <= b.similarity ? a : b
+// Лучшая из двух попыток — по вердикту (betterVerdict возвращает один из двух по
+// ссылке, попытки различимы по своему вердикту).
+function betterAttempt(a: Attempt, b: Attempt): Attempt {
+  return betterVerdict(a.verdict, b.verdict) === a.verdict ? a : b
 }
 
 // Цикл: сгенерировать → Fact Check → Meaning Check. Если есть Missing Anchor
@@ -232,50 +219,55 @@ export async function generateRewrite(
     const out = await callModel(messages)
     attempts++
     if (out === null) continue // невалидный JSON — ещё одна неудачная попытка
-    missing = missingIn(out.title, out.body, anchors)
+
+    // Сверки → предварительный вердикт (Meaning Check ещё не запускался).
     const similarity = similarityTo(out.title, out.body, article)
-    unchanged = similarity >= UNCHANGED_SIMILARITY_THRESHOLD
+    let verdict = verdictOf({
+      missing: missingIn(out.title, out.body, anchors),
+      similarity,
+      meaningCheck: 'skipped',
+      distortion: '',
+    })
+
+    // Meaning Check — только после пройденной Anchor-сверки (docs/adr/0005): судью
+    // не тревожим на тексте, который и так провалил Anchor. Сбой запроса и не-JSON
+    // от судьи трактуются одинаково — skipped: сверка не отработала. Не роняем
+    // запрос и не выдаём непройденное за пройденное.
+    if (anchorsPassed(verdict)) {
+      let review
+      try {
+        review = await meaningCheckModel(
+          buildMeaningCheckMessages({ title: article.title, announce: article.announce, rewrite: out }),
+        )
+      } catch {
+        review = null
+      }
+      const meaningCheck: MeaningCheck =
+        review === null ? 'skipped' : review.consistent ? 'passed' : 'failed'
+      const found =
+        meaningCheck === 'failed'
+          ? review!.distortion.trim() || 'исход события искажён относительно источника'
+          : ''
+      verdict = verdictOf({ missing: verdict.missing, similarity, meaningCheck, distortion: found })
+    }
+
+    const attempt: Attempt = { title: out.title, body: out.body, verdict }
+    best = best === null ? attempt : betterAttempt(attempt, best)
+    if (accepted(verdict)) break // вердикт годен — ретрай не нужен
+
+    // Не принято — готовим прицельный ретрай, называя причину неудачи. missing,
+    // unchanged и surviving берём от этой попытки; distortion обновляем только
+    // когда Meaning Check отработал (anchorsPassed) — иначе Anchor-провал затёр бы
+    // имя искажения, которое следующий ретрай ещё несёт модели.
+    missing = verdict.missing
+    unchanged = verdict.unchanged
     surviving = unchanged
       ? survivingFragments(
           `${out.title}\n${out.body}`,
           `${article.title}\n${article.announce}`,
         )
       : []
-    const attempt: Attempt = {
-      ...out,
-      missing,
-      unchanged,
-      similarity,
-      meaningCheck: 'skipped',
-      distortion: '',
-    }
-    best = best === null ? attempt : better(attempt, best)
-    if (missing.length > 0 || unchanged) continue // Anchor-сверка не пройдена — ретрай
-
-    // Anchor-сверка пройдена → Meaning Check (docs/adr/0005). Сбой запроса и
-    // не-JSON от судьи трактуются одинаково: сверка ответа не дала. Не роняем
-    // запрос — отдаём Anchor-валидный Rewrite, честно помечая сверку непройденной
-    // (skipped), а не выдавая её за пройденную.
-    let verdict
-    try {
-      verdict = await meaningCheckModel(
-        buildMeaningCheckMessages({ title: article.title, announce: article.announce, rewrite: out }),
-      )
-    } catch {
-      verdict = null
-    }
-    if (verdict === null || verdict.consistent) {
-      attempt.meaningCheck = verdict === null ? 'skipped' : 'passed'
-      distortion = ''
-      best = better(attempt, best)
-      break
-    }
-    // Искажение — ещё одна неудачная попытка, названная в следующем ретрае.
-    attempt.meaningCheck = 'failed'
-    attempt.distortion =
-      verdict.distortion.trim() || 'исход события искажён относительно источника'
-    distortion = attempt.distortion
-    best = better(attempt, best)
+    if (anchorsPassed(verdict)) distortion = verdict.distortion
   }
 
   if (best === null) {
@@ -288,12 +280,12 @@ export async function generateRewrite(
     body: best.body,
     anchors,
     anchorCount: anchors.length,
-    missing: best.missing,
+    missing: best.verdict.missing,
     attempts,
     stub: false, // модель вызывалась — это настоящий Rewrite
-    unchanged: best.unchanged,
-    meaningCheck: best.meaningCheck,
-    distortion: best.distortion,
+    unchanged: best.verdict.unchanged,
+    meaningCheck: best.verdict.meaningCheck,
+    distortion: best.verdict.distortion,
   }
 }
 
@@ -330,25 +322,26 @@ export type RewriteDeps = {
   useStub: boolean
 }
 
-// Прошёл ли Rewrite обе сверки — только такой достоин кэша (docs/adr/0008):
-// это не заглушка, все Anchor на месте, текст отличается от Snippet и Meaning
-// Check пройден. skipped и failed не кэшируются наравне с чистым результатом,
-// иначе одна неудачная попытка стала бы вечным свойством новости (docs/adr/0001).
-function passedBothChecks(rewrite: Rewrite): boolean {
-  return (
-    !rewrite.stub &&
-    rewrite.missing.length === 0 &&
-    !rewrite.unchanged &&
-    rewrite.meaningCheck === 'passed'
-  )
+// Вердикт готового Rewrite — мост от записи к module Verdict. Rewrite несёт все
+// поля вердикта, кроме similarity: она сыграла свою роль в выборе лучшей попытки
+// (тай-брейк) и в решение о кэше не входит — fitForCache её не читает.
+function verdictOfRewrite(rewrite: Rewrite): Verdict {
+  return {
+    missing: rewrite.missing,
+    unchanged: rewrite.unchanged,
+    similarity: 0,
+    meaningCheck: rewrite.meaningCheck,
+    distortion: rewrite.distortion,
+  }
 }
 
 // Ленивый кэш (docs/adr/0001): при попадании читаем из базы, при промахе
-// генерируем. В кэш пишется только прошедшее обе сверки (docs/adr/0008):
+// генерируем. В кэш пишется только годное по вердикту (fitForCache, docs/adr/0008):
 // провалившийся Rewrite отдаётся читателю (лучшая попытка, а не 500), но не
 // кэшируется — следующее открытие пары «Article + Mood» генерит заново, а не
-// показывает тот же провал навсегда. Заглушка тоже мимо кэша: с появлением ключа
-// генерация происходит по-настоящему.
+// показывает тот же провал навсегда. Заглушка тоже мимо кэша не особым флагом, а
+// своим вердиктом: meaningCheck:'skipped' у неё не проходит fitForCache — с
+// появлением ключа генерация происходит по-настоящему.
 export async function resolveRewrite(
   db: DatabaseSync,
   article: Article,
@@ -362,6 +355,6 @@ export async function resolveRewrite(
     ? stubRewrite(article, mood)
     : await generateRewrite(article, mood, deps.callModel, deps.meaningCheckModel)
 
-  if (passedBothChecks(rewrite)) insertRewrite(db, article.link, mood, rewrite)
+  if (fitForCache(verdictOfRewrite(rewrite))) insertRewrite(db, article.link, mood, rewrite)
   return rewrite
 }

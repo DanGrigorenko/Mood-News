@@ -87,3 +87,11 @@ _Avoid_: Second pass, Review, Semantic check
 субъект или дорисованный факт. Наличие Distortion означает, что Rewrite не прошёл
 Meaning Check.
 _Avoid_: Contradiction, Error, Lie
+
+**Verdict**:
+Одно определение «как прошла попытка» на весь pipeline (docs/adr/0010). По
+вердикту попытки ранжируют (лучшая, а не последняя), решают, ретраить ли, и
+годится ли Rewrite для кэша. `meaningCheck: 'skipped'` трактуется всеми тремя
+одинаково: из цикла выходим, в кэш не пишем — расхождение «выходим, но не
+кэшируем» выражено явно.
+_Avoid_: Status, Result, Score

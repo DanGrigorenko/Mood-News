@@ -1,0 +1,81 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  extractAnchors,
+  factCheck,
+  anchorSchema,
+  factCheckSchema,
+} from '../src/anchor.ts'
+
+// --- Извлечение Anchor из Snippet (механически, до всякой модели) ---
+
+test('извлекает числа, даты и суммы как один вид "number"', () => {
+  const anchors = extractAnchors('Цена выросла на 15% до 1200 рублей 01.02.2024.')
+  const numbers = anchors.filter((a) => a.kind === 'number').map((a) => a.text)
+  assert.deepEqual(numbers, ['15%', '1200', '01.02.2024'])
+})
+
+test('извлекает содержимое кавычек-ёлочек как Anchor вида "quote"', () => {
+  const anchors = extractAnchors('Министр заявил: «рост неизбежен» в этом году.')
+  const quotes = anchors.filter((a) => a.kind === 'quote').map((a) => a.text)
+  assert.deepEqual(quotes, ['рост неизбежен'])
+})
+
+test('извлекает имена собственные, но не заглавное слово в начале предложения', () => {
+  const anchors = extractAnchors('Компания растёт. Илон Маск купил Twitter вчера.')
+  const names = anchors.filter((a) => a.kind === 'name').map((a) => a.text)
+  // Заглавные слова в начале предложений — «Компания» и «Илон» — отбрасываются
+  // (отличить имя от обычного слова там нельзя); имена в середине берутся.
+  assert.deepEqual(names, ['Маск', 'Twitter'])
+})
+
+test('одинаковые Anchor не дублируются', () => {
+  const anchors = extractAnchors('В 2024 году, снова в 2024 году.')
+  const numbers = anchors.filter((a) => a.kind === 'number').map((a) => a.text)
+  assert.deepEqual(numbers, ['2024'])
+})
+
+test('каждый извлечённый Anchor проходит собственную схему', () => {
+  const anchors = extractAnchors('Курс достиг 90 в Москве.')
+  assert.ok(anchors.length > 0)
+  for (const anchor of anchors) {
+    assert.doesNotThrow(() => anchorSchema.parse(anchor))
+  }
+})
+
+// --- Fact Check: сверка Rewrite со списком Anchor ---
+
+test('Fact Check проходит, когда все Anchor дословно на месте', () => {
+  const anchors = extractAnchors('Ставка 15% названа Путиным.')
+  const result = factCheck('Внезапно! Целых 15%! И это сказал Путин.', anchors)
+  assert.equal(result.passed, true)
+  assert.deepEqual(result.missing, [])
+  assert.doesNotThrow(() => factCheckSchema.parse(result))
+})
+
+test('Fact Check ловит пропавшее число и не проходит', () => {
+  const anchors = extractAnchors('Ставка выросла на 15%.')
+  const result = factCheck('Ставка ощутимо выросла, и это тревожно.', anchors)
+  assert.equal(result.passed, false)
+  assert.deepEqual(
+    result.missing.map((a) => a.text),
+    ['15%'],
+  )
+})
+
+test('Fact Check ловит подменённое число', () => {
+  const anchors = extractAnchors('Погибло 12 человек.')
+  const result = factCheck('Погибло 21 человек — какой ужас.', anchors)
+  assert.equal(result.passed, false)
+  assert.deepEqual(
+    result.missing.map((a) => a.text),
+    ['12'],
+  )
+})
+
+test('имя засчитывается по первым 5 символам, переживая падеж', () => {
+  const anchors = extractAnchors('Об этом сообщил Зеленский.')
+  // Rewrite ставит имя в другой падеж — «Зеленского».
+  const result = factCheck('Об этом с грустью сообщил Зеленского представитель.', anchors)
+  assert.equal(result.passed, true)
+})

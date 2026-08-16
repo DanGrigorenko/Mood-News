@@ -22,9 +22,13 @@ function okResponse(content: string): Response {
 
 // Подставной транспорт: сценарий request по вызовам плюс запись пауз backoff.
 // Пауза здесь мгновенная — повтор по 429 проверяется без реального ожидания, а
-// величины пауз остаются наблюдаемыми в paused.
+// величины пауз остаются наблюдаемыми в paused. retryDelays по умолчанию несёт
+// прод-значения [1000,4000,10000], чтобы прежние тесты видели те же паузы; тест
+// на источник пауз подставляет свои.
+const PROD_DELAYS = [1_000, 4_000, 10_000]
 function scriptedTransport(
   handlers: Array<() => Promise<Response>>,
+  retryDelays: number[] = PROD_DELAYS,
 ): { transport: Transport; calls: () => number; paused: number[] } {
   let call = 0
   const paused: number[] = []
@@ -37,6 +41,7 @@ function scriptedTransport(
     sleep: async (ms) => {
       paused.push(ms)
     },
+    retryDelays,
   }
   return { transport, calls: () => call, paused }
 }
@@ -77,6 +82,21 @@ test('429: транспорт повторяет с растущей паузо�
   assert.equal(content, 'готово')
   assert.equal(calls(), 3) // две неудачи + успех
   assert.deepEqual(paused, [1_000, 4_000]) // прежние паузы backoff, не тронуты
+})
+
+test('повтор берёт паузы из транспорта, а не из константы module', async () => {
+  const { transport, calls, paused } = scriptedTransport(
+    [
+      async () => new Response('', { status: 429 }),
+      async () => new Response('', { status: 429 }),
+      async () => okResponse('готово'),
+    ],
+    [7, 13, 19], // подставные паузы: не прод-константа RETRY_DELAYS_MS
+  )
+  const content = await fetchChatContent(messages, 'модель', transport)
+  assert.equal(content, 'готово')
+  assert.equal(calls(), 3) // две неудачи + успех
+  assert.deepEqual(paused, [7, 13]) // паузы взяты из transport.retryDelays, а не из module
 })
 
 test('429 без просвета: попытки кончаются, отдаётся внятная ошибка', async () => {

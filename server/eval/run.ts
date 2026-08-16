@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { MOOD_LABELS, MOOD_IDS } from '../src/mood.ts'
 import { generateRewrite, unchangedSimilarity, type Rewrite } from '../src/rewrite.ts'
-import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from '../src/llm.ts'
+import { makeModelCall, makeMeaningCheckCall, httpTransport, hasApiKey, type Transport } from '../src/llm.ts'
 import type { Article } from '../src/rss.ts'
 import { summarize, formatSummary } from './aggregate.ts'
 
@@ -44,23 +44,36 @@ function articleOf(entry: CorpusEntry): Article {
 
 // Провайдер режет частые вызовы 429, а один прогон — это 50 Rewrite по 2+
 // вызова: без пауз и ретраев раннер падает на середине и весь потраченный прогон
-// уходит в никуда. Пауза между Rewrite плюс несколько попыток на 429 и таймаут.
+// уходит в никуда. Повтор по 429 и таймауту раннер больше не крутит сам —
+// это делает Transport, тот же, что и в проде, но с длинными паузами: собственный
+// цикл повтора и разбор текста ошибки регуляркой удалены, паузы больше не
+// складываются (issue #29). Пауза между соседними Rewrite (вежливость к
+// провайдеру, а не повтор) остаётся здесь — это решение раннера, а не политика
+// транспорта.
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const RETRY_PAUSE_MS = 20_000
 const BETWEEN_REWRITES_MS = 3_000
-const MAX_RETRIES = 5
+// Прежние MAX_RETRIES=5 попыток повтора — теперь пять длинных пауз транспорта.
+const EVAL_RETRY_DELAYS_MS = Array<number>(5).fill(RETRY_PAUSE_MS)
 
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  for (let i = 0; ; i++) {
+// Транспорт eval: сеть и таймер берём прод-adapter, паузы повтора — длинные.
+// Таймаут и обрыв сети приходят броском request; превращаем их в retryable 503,
+// чтобы повтор по 429 И по таймауту шёл одним циклом транспорта, а не отдельной
+// регуляркой по тексту ошибки в раннере (issue #29).
+const evalTransport: Transport = {
+  request: async (url, init) => {
     try {
-      return await fn()
-    } catch (err) {
-      if (i >= MAX_RETRIES || !/429|timeout/.test(String(err))) throw err
-      console.log(`  … провайдер отбил (${String(err)}), ждём ${RETRY_PAUSE_MS / 1000}с`)
-      await sleep(RETRY_PAUSE_MS)
+      return await httpTransport.request(url, init)
+    } catch {
+      return new Response('', { status: 503 })
     }
-  }
+  },
+  sleep: httpTransport.sleep,
+  retryDelays: EVAL_RETRY_DELAYS_MS,
 }
+
+const callModel = makeModelCall(evalTransport)
+const callMeaningCheck = makeMeaningCheckCall(evalTransport)
 
 function printRewrite(entry: CorpusEntry, rewrite: Rewrite): void {
   const kept = rewrite.anchorCount - rewrite.missing.length
@@ -100,9 +113,7 @@ async function main(): Promise<void> {
   for (const entry of corpus) {
     const article = articleOf(entry)
     for (const mood of MOOD_IDS) {
-      const rewrite = await withRetry(() =>
-        generateRewrite(article, mood, callModelOverHttp, callMeaningCheckOverHttp),
-      )
+      const rewrite = await generateRewrite(article, mood, callModel, callMeaningCheck)
       rewrites.push(rewrite)
       printRewrite(entry, rewrite)
       await sleep(BETWEEN_REWRITES_MS)

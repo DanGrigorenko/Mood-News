@@ -37,11 +37,10 @@ function pluralNews(n: number): string {
 // добавленным, чтобы погасшая лента была видна читателю (issue #30). Ничего не
 // отброшено — про отброшенное молчим.
 export function formatAdded(added: number, skipped = 0): string {
-  const base =
-    added === 0
-      ? 'Новых новостей нет'
-      : `${added % 10 === 1 && added % 100 !== 11 ? 'Добавлена' : 'Добавлено'} ${added} ${pluralNews(added)}`
-  return skipped > 0 ? `${base}, отброшено ${skipped}` : base
+  const dropped = skipped > 0 ? `, отброшено ${skipped}` : ''
+  if (added === 0) return `Новых новостей нет${dropped}`
+  const verb = added % 10 === 1 && added % 100 !== 11 ? 'Добавлена' : 'Добавлено'
+  return `${verb} ${added} ${pluralNews(added)}${dropped}`
 }
 
 // Короткая форма для строк выпуска: полная дата занимает две строки и рвёт

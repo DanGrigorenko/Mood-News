@@ -145,6 +145,32 @@ test('subscribe уведомляет об изменении и отписыва
   assert.equal(hits, 2, 'после отписки уведомлений нет')
 })
 
+// Хранилище живёт дольше страницы новости (issue #32): поднято в корень, к
+// выбранному Mood. Возврат в выпуск размонтирует страницу, но не хранилище,
+// поэтому повторное открытие уже полученной пары «Article + Mood» показывает
+// Rewrite сразу и не идёт в API заново.
+test('повторный выбор ранее выбранной пары не идёт в API заново', async () => {
+  const { fetchOne, pending } = deferredFetch()
+  const store = createRewriteStore(fetchOne)
+
+  store.select('a', 'joyful')
+  pending[0].resolve(rewriteFor('joyful'))
+  await flush()
+  assert.equal(store.getState().rewrite?.mood, 'joyful')
+  assert.equal(pending.length, 1)
+
+  // Ушли на другой Mood — как возврат в выпуск, — потом вернулись к той же паре.
+  store.select('a', 'sad')
+  pending[1].resolve(rewriteFor('sad'))
+  await flush()
+
+  store.select('a', 'joyful') // ранее выбранная пара
+  assert.equal(pending.length, 2, 'в API повторно не пошли')
+  assert.equal(store.getState().rewrite?.mood, 'joyful', 'кэш показан сразу')
+  assert.equal(store.getState().loading, false, 'без загрузки')
+  assert.equal(store.getState().error, null)
+})
+
 // Deletion test: состояние ходит в API общим способом из тикета контракта
 // (fetchRewrite), а не зовёт глобальный fetch само.
 test('deletion: useRewrite.ts не вызывает fetch напрямую', () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { openDb, listArticles, countArticles } from '../src/db.ts'
+import { openDb, listArticles, countArticles, getArticle, insertArticles } from '../src/db.ts'
 import { ingest } from '../src/ingest.ts'
 
 const feedXml = (n: number) => `<?xml version="1.0"?>
@@ -34,6 +34,57 @@ test('повторный Ingest уже известной публикации �
   assert.equal(first.added, 2)
   assert.equal(second.added, 0)
   assert.equal(countArticles(db), 2)
+})
+
+// Lenta.ru и РИА отдают в RSS пустой description; такие Article — один голый
+// заголовок, сохранять их нечего (issue #7). Ingest их отбрасывает и сообщает,
+// сколько пропущено, чтобы отброшенные не выглядели молча потерянными.
+const mixedFeed = `<?xml version="1.0"?>
+  <rss version="2.0"><channel>
+    <item><title>С текстом</title><link>https://src.test/1</link>
+      <description>Настоящий анонс</description>
+      <pubDate>Mon, 16 Aug 2026 09:00:00 +0300</pubDate></item>
+    <item><title>Пустой анонс</title><link>https://src.test/2</link>
+      <description></description>
+      <pubDate>Mon, 16 Aug 2026 10:00:00 +0300</pubDate></item>
+    <item><title>Пробелы и пустые теги</title><link>https://src.test/3</link>
+      <description>   <p></p>  </description>
+      <pubDate>Mon, 16 Aug 2026 11:00:00 +0300</pubDate></item>
+  </channel></rss>`
+
+test('ingest отбрасывает Article с пустым анонсом и сообщает, сколько пропущено', async () => {
+  const db = openDb(':memory:')
+  const feeds = [{ url: 'https://a.test/rss', source: 'A' }]
+  const result = await ingest(db, { feeds, fetchFeed: async () => mixedFeed })
+
+  assert.equal(result.added, 1)
+  assert.equal(result.skipped, 2)
+  assert.equal(countArticles(db), 1)
+  assert.equal(listArticles(db)[0].announce, 'Настоящий анонс')
+})
+
+test('уже сохранённая Article с пустым анонсом не отдаётся в выдаче', () => {
+  const db = openDb(':memory:')
+  insertArticles(db, [
+    {
+      link: 'https://src.test/empty',
+      source: 'A',
+      title: 'Только заголовок',
+      announce: '',
+      publishedAt: '2026-08-16T09:00:00.000Z',
+    },
+    {
+      link: 'https://src.test/full',
+      source: 'A',
+      title: 'С анонсом',
+      announce: 'Есть текст',
+      publishedAt: '2026-08-16T10:00:00.000Z',
+    },
+  ])
+
+  assert.equal(listArticles(db).length, 1)
+  assert.equal(listArticles(db)[0].link, 'https://src.test/full')
+  assert.equal(getArticle(db, 'https://src.test/empty'), undefined)
 })
 
 test('недоступность одной ленты не роняет Ingest — остальные сохраняются', async () => {

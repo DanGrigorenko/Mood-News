@@ -14,7 +14,7 @@ export const FEEDS: Feed[] = [
   { url: 'https://www.kommersant.ru/RSS/news.xml', source: 'Коммерсантъ' },
 ]
 
-export type IngestResult = { added: number }
+export type IngestResult = { added: number; skipped: number }
 
 export type IngestOptions = {
   feeds?: Feed[]
@@ -28,8 +28,14 @@ async function fetchFeedOverHttp(url: string): Promise<string> {
 }
 
 // Забор свежих Article из каждой ленты и их сохранение. Возвращает, сколько
-// новых публикаций добавилось (без дублей). Ошибка одной ленты логируется и не
-// прерывает остальные — acceptance criteria issue #3.
+// новых публикаций добавилось (без дублей) и сколько отброшено. Ошибка одной
+// ленты логируется и не прерывает остальные — acceptance criteria issue #3.
+//
+// Article без анонса отбрасываем: Lenta.ru и РИА отдают в RSS пустой
+// description, и «исходный текст» такой новости — один голый заголовок. Из семи
+// слов заголовка извлекается один Anchor, переписывать модели нечего. Полный
+// текст по ссылке не забираем (docs/adr/0004) — фильтруем по факту наличия
+// анонса, а не вычёркиваем ленты: завтра они могут начать отдавать текст.
 export async function ingest(
   db: DatabaseSync,
   options: IngestOptions = {},
@@ -38,13 +44,17 @@ export async function ingest(
   const fetchFeed = options.fetchFeed ?? fetchFeedOverHttp
 
   let added = 0
+  let skipped = 0
   for (const feed of feeds) {
     try {
       const xml = await fetchFeed(feed.url)
-      added += insertArticles(db, parseFeed(xml, feed.source))
+      const articles = parseFeed(xml, feed.source)
+      const withText = articles.filter((a) => a.announce.trim() !== '')
+      skipped += articles.length - withText.length
+      added += insertArticles(db, withText)
     } catch (err) {
       console.error(`Ingest ленты ${feed.source} провалился:`, err)
     }
   }
-  return { added }
+  return { added, skipped }
 }

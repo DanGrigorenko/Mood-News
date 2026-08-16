@@ -56,22 +56,26 @@ export function countArticles(db: DatabaseSync): number {
   return row.c
 }
 
+// Article без анонса не отдаём: новые Ingest их и не сохраняют (issue #7), но
+// в базе могли осесть записи, забранные до фильтра. Отсекаем их и на чтении,
+// чтобы у каждой карточки был непустой текст под заголовком.
 export function listArticles(db: DatabaseSync): Article[] {
   const rows = db
     .prepare(
       `SELECT link, source, title, announce, published_at AS publishedAt
-       FROM articles ORDER BY published_at DESC`,
+       FROM articles WHERE trim(announce) <> '' ORDER BY published_at DESC`,
     )
     .all()
   return rows.map((row) => articleSchema.parse(row))
 }
 
-// Одна Article по её ссылке (первичному ключу) — undefined, если такой нет.
+// Одна Article по её ссылке (первичному ключу) — undefined, если такой нет или
+// у неё пустой анонс (см. listArticles).
 export function getArticle(db: DatabaseSync, link: string): Article | undefined {
   const row = db
     .prepare(
       `SELECT link, source, title, announce, published_at AS publishedAt
-       FROM articles WHERE link = ?`,
+       FROM articles WHERE link = ? AND trim(announce) <> ''`,
     )
     .get(link)
   return row ? articleSchema.parse(row) : undefined

@@ -19,10 +19,10 @@ import {
   type MeaningCheck,
   type Verdict,
 } from './verdict.ts'
-
-// Порог непохожести живёт в модуле Verdict (граница «копия / переписано» — часть
-// вердикта). Реэкспорт — чтобы прежние импортёры (тесты, eval) не переезжали.
-export { UNCHANGED_SIMILARITY_THRESHOLD } from './verdict.ts'
+// Непохожесть — «копия или переписано» одним module (issue #28): мера
+// непохожести Rewrite от Snippet и список дословно перенесённых кусков для
+// ретрая. Триграмм, нормализации и прямой речи переписывание больше не знает.
+import { unchangedSimilarity, survivingFragments } from './similarity.ts'
 
 // Первичная генерация плюс до двух ретраев по Missing Anchor (docs/adr/0002).
 export const MAX_ATTEMPTS = 3
@@ -36,88 +36,6 @@ function anchorsOf(article: Article): Anchor[] {
 // переехать из одного в другое, и это не потеря.
 function missingIn(title: string, body: string, anchors: Anchor[]): Anchor[] {
   return factCheck(`${title}\n${body}`, anchors).missing
-}
-
-// Нормализация для сравнения Rewrite со Snippet: всё, кроме букв и цифр,
-// схлопывается в один пробел, регистр гасится. Так различие лишь в пробелах,
-// регистре или пунктуации переписыванием не считается (issue #8).
-function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-}
-
-// Прямая речь вырезается перед сравнением: цитата обязана пережить
-// переписывание дословно (Anchor вида quote), и её уцелевшие триграммы говорят о
-// послушании, а не о лени. На короткой новости, где цитата — треть текста, они
-// одни давали sim 0.85 при честно переписанном остатке.
-function withoutQuotes(text: string): string {
-  return text.replace(/«[^»]*»/g, ' ')
-}
-
-// Словесные триграммы нормализованного текста: тройки соседних слов. Одиночные
-// слова для меры непохожести не годятся — новость обязана переиспользовать
-// существительные события, и по униграммам честный Rewrite неотличим от копии.
-function wordTrigrams(text: string): string[] {
-  const words = normalize(text).split(' ').filter(Boolean)
-  const grams: string[] = []
-  for (let i = 0; i + 3 <= words.length; i++) {
-    grams.push(words.slice(i, i + 3).join(' '))
-  }
-  return grams
-}
-
-// Доля словесных триграмм Snippet, дословно уцелевших в Rewrite (0…1). Чистая
-// функция: сравнение идёт по склейке заголовка и тела — так же, как Fact Check.
-// Snippet короче трёх слов триграмм не даёт — тогда падаем на сравнение на
-// тождество нормализованных строк (порог длины Ingest такого не пропустит, но
-// функция обязана быть тотальной).
-export function unchangedSimilarity(rewrite: string, snippet: string): number {
-  const snippetGrams = wordTrigrams(withoutQuotes(snippet))
-  if (snippetGrams.length === 0) {
-    return normalize(rewrite) === normalize(snippet) ? 1 : 0
-  }
-  const rewriteGrams = new Set(wordTrigrams(withoutQuotes(rewrite)))
-  const kept = snippetGrams.filter((g) => rewriteGrams.has(g)).length
-  return kept / snippetGrams.length
-}
-
-// Сколько слов подряд должен насчитывать дословно перенесённый кусок, чтобы его
-// стоило показывать модели. Шесть — длиннее случайного совпадения на обязательных
-// существительных события и достаточно коротко, чтобы поймать перефраз по
-// предложению, из которого состоят провалы на длинных статьях.
-const SURVIVING_MIN_WORDS = 6
-// Сколько кусков называть в ретрае. Список нужен, чтобы модель увидела, где
-// именно она шла за источником, а не чтобы переписать за неё весь текст.
-const SURVIVING_LIMIT = 3
-
-// Куски Snippet, дословно уцелевшие в Rewrite, — от самого длинного. На длинной
-// статье модель не тянет «пересобери заново» и идёт по источнику предложение за
-// предложением, а голая просьба «смени формулировки» делает ретрай слепым.
-// Названные куски делают его прицельным — так же, как Missing Anchor делает
-// прицельным ретрай по фактам. Цитаты исключены: они обязаны уцелеть дословно.
-export function survivingFragments(rewrite: string, snippet: string): string[] {
-  const words = normalize(withoutQuotes(snippet)).split(' ').filter(Boolean)
-  const haystack = ` ${normalize(withoutQuotes(rewrite))} `
-  const found: string[] = []
-  let i = 0
-  while (i < words.length) {
-    let len = 0
-    while (
-      i + len < words.length &&
-      haystack.includes(` ${words.slice(i, i + len + 1).join(' ')} `)
-    ) {
-      len++
-    }
-    if (len >= SURVIVING_MIN_WORDS) {
-      found.push(words.slice(i, i + len).join(' '))
-      i += len
-    } else {
-      i++
-    }
-  }
-  return found.sort((a, b) => b.length - a.length).slice(0, SURVIVING_LIMIT)
 }
 
 // Доля уцелевших триграмм Snippet в Rewrite. Сравнение идёт по объединению

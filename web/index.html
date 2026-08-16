@@ -3,9 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mood News</title>
+    <title>Mood News — реальные новости в разных эмоциональных регистрах</title>
+    <meta
+      name="description"
+      content="Реальные новости из RSS-лент, прочитанные в пяти эмоциональных регистрах. Тон меняется, факты остаются: каждый факт сверяется с оригиналом, и потери показываются читателю."
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/alegreya-normal-400900-cyrillic.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/alegreya-sans-normal-500-cyrillic.woff2"
+      crossorigin
+    />
   </head>
   <body>
+    <!--
+      THESIS: Одна новость, сыгранная пятью способами. Отказ от сетки одинаковых
+      карточек с закруглениями — стандартной раскладки новостного портала.
+      OWN-WORLD: Гравированная партитура. Холодная тряпичная бумага (#F4F3EF),
+      тушь (#14161A), единственная краска — синий редакторский карандаш
+      (#1C3FA2). Alegreya и Alegreya Sans. Всё стоит на линиях стана: волосяные
+      линейки, тактовые черты, реперные метки, акколада. Никаких карточек.
+      STORY: Читатель видит настоящие новости, выбирает регистр исполнения и
+      убеждается, что факты пережили переписывание.
+      FIRST VIEWPORT: Ремарка исполнения курсивом, «Mood News», двойная тактовая
+      черта, ряд из пяти указаний исполнения, затем главная новость на сплошной
+      синей плашке с выбитым белым заголовком и меткой № 1.
+      FORM: Партитура, кандидат 6 из семи, seed 5cac94a0.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the
+      finish review, the verdict, and DESIGN.md
+    -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

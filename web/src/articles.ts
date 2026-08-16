@@ -44,6 +44,19 @@ export function formatAdded(added: number): string {
   return `${verb} ${added} ${pluralNews(added)}`
 }
 
+// Короткая форма для строк выпуска: полная дата занимает две строки и рвёт
+// ритм стана. На странице новости остаётся полная.
+export function formatShort(iso: string): string {
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return '—'
+  return new Date(ms).toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export function formatPublished(iso: string): string {
   if (iso === '') return '—'
   const ms = Date.parse(iso)

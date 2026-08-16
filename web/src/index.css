@@ -1,95 +1,695 @@
+@import './fonts.css';
+
+/*
+  Мир «Партитура». Страница разлинована как нотный лист: всё стоит на линиях
+  стана, ничего не плавает в карточках. Настроение — это указание исполнения
+  над строкой, а не фильтр. Fact Check рисуется знаком, а не цветом: уцелевший
+  Anchor — нота, потерянный — пауза.
+*/
+
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
+  color-scheme: light;
+
+  /* Бумага и тушь */
+  --paper: #f4f3ef;
+  --paper-deep: #eae8e1;
+  --ink: #14161a;
+  --ink-soft: #55575c;
+  --rule: #c9c7c0;
+
+  /* Единственная краска мира: синий карандаш редактора. Ею набраны указания
+     исполнения, реперные метки и плашка главной новости. */
+  --blue: #1c3fa2;
+  --blue-deep: #16327e;
+  --blue-pale: #dfe4f2;
+
+  /* Стан: вертикальный ритм страницы кратен шагу линейки. */
+  --step: 8px;
+  --measure: 66ch;
+
+  --serif: 'Alegreya', Georgia, 'Times New Roman', serif;
+  --sans: 'Alegreya Sans', system-ui, sans-serif;
+
+  /* Одно затухание на весь проект: быстро уходит, долго успокаивается. */
+  --settle: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scrollbar-color: var(--rule) var(--paper);
 }
 
 body {
   margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-main {
-  max-width: 1100px;
+::selection {
+  background: var(--blue);
+  color: var(--paper);
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+}
+
+a {
+  color: inherit;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+
+a:hover {
+  text-decoration-color: var(--blue);
+}
+
+/* ── Служебный набор: источники, время, счёт фактов ───────────────────────── */
+
+.apparatus {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Разворот ─────────────────────────────────────────────────────────────── */
+
+.sheet {
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: calc(var(--step) * 5) calc(var(--step) * 3) calc(var(--step) * 12);
 }
 
-header {
+/* ── Титульный стан ───────────────────────────────────────────────────────── */
+
+.masthead {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 1rem;
+  gap: calc(var(--step) * 3);
+  flex-wrap: wrap;
 }
 
-button {
-  padding: 0.5rem 1rem;
-  font-size: 1rem;
+.masthead h1 {
+  font-size: clamp(2.1rem, 4.6vw, 3.4rem);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.masthead h1 a {
+  text-decoration: none;
+}
+
+.masthead-note {
+  font-style: italic;
+  font-size: 1.05rem;
+  color: var(--blue);
+  margin: 0 0 calc(var(--step) * 0.5);
+}
+
+/* Тонкая и толстая линии — как двойная тактовая черта в конце раздела. */
+.double-barline {
+  border-top: 1px solid var(--rule);
+  border-bottom: 3px solid var(--ink);
+  height: 3px;
+  margin-top: calc(var(--step) * 2);
+}
+
+.refresh {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  padding: calc(var(--step) * 1.25) calc(var(--step) * 2.5);
   cursor: pointer;
+  transition:
+    background 0.18s var(--settle),
+    color 0.18s var(--settle);
 }
 
-button:disabled {
-  cursor: default;
-  opacity: 0.6;
+.refresh:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--paper);
 }
 
-.moods {
+.refresh:disabled {
+  cursor: progress;
+  border-color: var(--rule);
+  color: var(--ink-soft);
+}
+
+/* ── Указания исполнения (переключатель Mood) ─────────────────────────────── */
+
+.registers {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  align-items: baseline;
+  gap: calc(var(--step) * 3);
+  margin-top: calc(var(--step) * 2.5);
+  padding-bottom: calc(var(--step) * 1.5);
+  border-bottom: 1px solid var(--rule);
 }
 
-.mood {
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-radius: 999px;
-  background: transparent;
-  color: inherit;
+.registers-label {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
 }
 
-.mood.active {
-  background: currentColor;
-  color: Canvas;
-}
-
-.error {
-  color: #c0392b;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
-  margin-top: 1rem;
-}
-
-.card {
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-  border-radius: 8px;
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+.register {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 0 calc(var(--step) * 0.5);
   cursor: pointer;
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-size: 1.0625rem;
+  line-height: 1.2;
+  text-align: left;
+  transition: color 0.18s var(--settle);
 }
 
-.card:hover {
-  border-color: color-mix(in srgb, currentColor 45%, transparent);
+.register:hover {
+  color: var(--ink);
 }
 
-.card h2 {
-  font-size: 1.05rem;
-  margin: 0;
+.register-name {
+  display: block;
+  font-weight: 500;
 }
 
-.card p {
-  margin: 0;
-  font-size: 0.9rem;
-  opacity: 0.85;
+/* Итальянская ремарка — то, что композитор пишет над строкой. */
+.register-term {
+  display: block;
+  font-style: italic;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
 }
 
-.card footer {
-  margin-top: auto;
+.register[aria-pressed='true'] {
+  color: var(--blue);
+  border-bottom-color: var(--blue);
+}
+
+.register[aria-pressed='true'] .register-term {
+  color: var(--blue);
+}
+
+/* ── Главная новость: сплошная плашка ─────────────────────────────────────── */
+
+.lead {
+  display: block;
+  background: var(--blue);
+  color: var(--paper);
+  text-decoration: none;
+  padding: calc(var(--step) * 5) calc(var(--step) * 5) calc(var(--step) * 4);
+  margin-top: calc(var(--step) * 4);
+  transition: background 0.2s var(--settle);
+}
+
+.lead:hover {
+  background: var(--blue-deep);
+}
+
+.lead-head {
   display: flex;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+}
+
+/* Ремарка рядом с меткой: она предупреждает, что заголовок на плашке звучит в
+   выбранном регистре, а не дословно как у источника. */
+.lead-term {
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--blue-pale);
+}
+
+.lead-body {
+  display: block;
+  animation: settle 0.5s var(--settle) both;
+}
+
+.lead-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--step) * 2);
+  margin-top: calc(var(--step) * 4);
+  color: var(--blue-pale);
+}
+
+/* Реперная метка — номер, по которому в оркестре находят место в партитуре.
+   Здесь это номер новости в выпуске. */
+.mark {
+  display: inline-block;
+  border: 1.5px solid currentColor;
+  padding: 2px calc(var(--step) * 1.25);
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.lead h2 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  margin: calc(var(--step) * 2.5) 0 0;
+  max-width: 22ch;
+}
+
+.lead p {
+  font-size: 1.1875rem;
+  line-height: 1.5;
+  margin: calc(var(--step) * 2) 0 0;
+  max-width: 54ch;
+  color: var(--blue-pale);
+}
+
+/* ── Остальные новости: строки стана, без карточек ────────────────────────── */
+
+.staff {
+  margin-top: calc(var(--step) * 6);
+  border-top: 1px solid var(--ink);
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: 11rem 1fr 7.5rem;
+  gap: calc(var(--step) * 3);
+  align-items: baseline;
+  border-bottom: 1px solid var(--rule);
+  padding: calc(var(--step) * 3) calc(var(--step) * 1.5);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.18s var(--settle);
+}
+
+.entry:hover {
+  background: var(--paper-deep);
+}
+
+/* Источник стоит слева, на месте ключа: он открывает каждую строку. */
+.entry-clef {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--step) * 1.25);
+}
+
+.entry:hover .entry-clef {
+  color: var(--blue);
+}
+
+.entry h2 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.entry p {
+  margin: calc(var(--step) * 1) 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+/* Одна измеримая шкала ранга: два размера, ниже — без анонса. */
+.entry.rank-major h2 {
+  font-size: clamp(1.35rem, 2.1vw, 1.75rem);
+}
+
+.entry.rank-minor h2 {
+  font-size: 1.0625rem;
+}
+
+.entry-time {
+  text-align: right;
+}
+
+/* Переход на следующую страницу выпуска — как «V.S.», знак «переверни лист». */
+.more {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  font-size: 0.8rem;
-  opacity: 0.7;
+  gap: calc(var(--step) * 2);
+  width: 100%;
+  margin-top: calc(var(--step) * 4);
+  padding: calc(var(--step) * 2.5) calc(var(--step) * 1.5);
+  background: none;
+  border: 0;
+  border-bottom: 3px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.125rem;
+  text-align: left;
+  transition: color 0.18s var(--settle);
+}
+
+.more:hover {
+  color: var(--blue);
+}
+
+/* ── Страница новости ─────────────────────────────────────────────────────── */
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--step) * 1);
+  margin-bottom: calc(var(--step) * 3);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--blue);
+}
+
+.piece-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--step) * 2);
+  padding-bottom: calc(var(--step) * 2);
+  border-bottom: 3px solid var(--ink);
+}
+
+/* Акколада: скобка слева соединяет два стана в одну систему. */
+.system {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: calc(var(--step) * 3);
+  margin-top: calc(var(--step) * 5);
+}
+
+.brace {
+  color: var(--ink);
+  width: 22px;
+  height: 100%;
+}
+
+.staves {
+  display: grid;
+  gap: calc(var(--step) * 5);
+}
+
+/* Рубрика стана стоит в левом поле, вдоль нотоносца — как название партии в
+   партитуре. Над заголовком её быть не должно: там она превращается в
+   надзаголовок. */
+.stave {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+}
+
+.stave-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  justify-self: start;
+  align-self: start;
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.stave h2 {
+  font-size: clamp(1.6rem, 3.4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  margin: 0;
+  max-width: 28ch;
+}
+
+.stave p {
+  margin: calc(var(--step) * 2) 0 0;
+  max-width: var(--measure);
+  font-size: 1.1875rem;
+  line-height: 1.65;
+}
+
+/* Разделительная линейка между станами системы. */
+.stave + .stave {
+  padding-top: calc(var(--step) * 5);
+  border-top: 1px solid var(--rule);
+}
+
+/* Единственный поставленный момент движения: переписанный текст оседает на
+   место, как свежий оттиск. */
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.stave-rewritten {
+  animation: settle 0.5s var(--settle) both;
+}
+
+.working {
+  font-style: italic;
+  color: var(--ink-soft);
+  margin: calc(var(--step) * 2) 0 0;
+}
+
+/* Редакторская вставка: то, что приписано к тексту, а не сам текст. Набрана
+   в квадратных скобках и отбита линейками сверху и снизу, как примечание
+   редактора в академическом издании. */
+.editorial {
+  font-style: italic;
+  color: var(--ink-soft);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  padding: calc(var(--step) * 1.5) 0;
+  margin: calc(var(--step) * 3) 0 0;
+  max-width: var(--measure);
+}
+
+.editorial::before {
+  content: '[';
+}
+
+.editorial::after {
+  content: ']';
+}
+
+.editorial-alert {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* Ошибка называет не только проблему, но и выход из неё. */
+.retry {
+  margin-top: calc(var(--step) * 2);
+  padding: calc(var(--step) * 1) calc(var(--step) * 2);
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition:
+    background 0.18s var(--settle),
+    color 0.18s var(--settle);
+}
+
+.retry:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* ── Fact Check: ноты и паузы ─────────────────────────────────────────────── */
+
+.factcheck {
+  margin-top: calc(var(--step) * 5);
+  padding-top: calc(var(--step) * 3);
+  border-top: 1px solid var(--rule);
+}
+
+.factcheck-count {
+  display: block;
+  margin-bottom: calc(var(--step) * 3);
+}
+
+/* Ноты и паузы стоят на общей линейке: она проходит через весь ряд, поэтому
+   ячейки примыкают вплотную, а воздух между знаками даётся padding-ом. */
+.factcheck-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: calc(var(--step) * 2.5);
+  column-gap: 0;
+  align-items: flex-start;
+}
+
+.anchor {
+  display: grid;
+  justify-items: center;
+  gap: calc(var(--step) * 0.75);
+  min-width: 5.5rem;
+  max-width: 14ch;
+  padding: 0 calc(var(--step) * 1.5);
+  background-image: linear-gradient(var(--rule), var(--rule));
+  background-size: 100% 1px;
+  background-position: 0 19px;
+  background-repeat: no-repeat;
+}
+
+.anchor svg {
+  color: var(--ink);
+  display: block;
+}
+
+.anchor-text {
+  font-family: var(--sans);
+  font-size: 0.8125rem;
+  line-height: 1.25;
+  text-align: center;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+/* Потерянный факт назван прямо, а не покрашен. */
+.anchor-lost .anchor-text {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.factcheck-lost {
+  margin: calc(var(--step) * 3) 0 0;
+  max-width: var(--measure);
+  font-style: italic;
+}
+
+/* ── Конец: финальная тактовая черта и ссылка на источник ─────────────────── */
+
+.fine {
+  margin-top: calc(var(--step) * 7);
+  border-top: 3px solid var(--ink);
+  padding-top: calc(var(--step) * 2.5);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--step) * 2);
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--step) * 1);
+  font-size: 1.0625rem;
+  color: var(--blue);
+  text-decoration-color: var(--blue);
+}
+
+/* ── Пустой стан и служебные сообщения ────────────────────────────────────── */
+
+.notice {
+  margin: calc(var(--step) * 3) 0 0;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.empty {
+  margin-top: calc(var(--step) * 8);
+  padding: calc(var(--step) * 8) 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  text-align: center;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* ── Узкий экран: система разворачивается в одну колонку ──────────────────── */
+
+@media (max-width: 760px) {
+  .sheet {
+    padding: calc(var(--step) * 3) calc(var(--step) * 2.5)
+      calc(var(--step) * 10);
+  }
+
+  .lead {
+    padding: calc(var(--step) * 3.5) calc(var(--step) * 3)
+      calc(var(--step) * 3);
+  }
+
+  .entry {
+    grid-template-columns: 1fr;
+    gap: calc(var(--step) * 1.5);
+  }
+
+  .entry-time {
+    text-align: left;
+  }
+
+  /* Скобка остаётся и на телефоне: без неё оригинал и переписанное читаются
+     как два отдельных куска, а не как одна система. Уже поле, не отказ. */
+  .system {
+    grid-template-columns: 12px 1fr;
+    gap: calc(var(--step) * 1.5);
+  }
+
+  .brace {
+    width: 12px;
+  }
+
+  .stave {
+    grid-template-columns: 1.75rem 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -18,6 +18,7 @@ import {
   parseMeaningCheckContent,
 } from '../src/llm.ts'
 import type {
+  ChatMessage,
   ModelCall,
   ModelOutput,
   MeaningCheckCall,
@@ -98,6 +99,31 @@ test('при потерянном Anchor следует ретрай, назва
 
   assert.equal(rewrite.attempts, 2)
   assert.deepEqual(rewrite.missing, [])
+})
+
+test('Anchor нет в первой попытке, но есть во второй после потери (issue #14)', async () => {
+  // Первая попытка теряет «15%», вторая возвращает всё. Проверяем сами промпты:
+  // список Anchor не диктуется заранее, а называется только в ретрае — потерянным.
+  const seen: ChatMessage[][] = []
+  const outputs: Array<ModelOutput | null> = [
+    { title: 'Собянин выделил 1200 млрд', body: 'Мэр Москвы сообщил о росте в 2026 году.' },
+    goodRewrite,
+  ]
+  let i = 0
+  const recording: ModelCall = async (messages) => {
+    seen.push(messages)
+    return outputs[i++] ?? null
+  }
+  const rewrite = await generateRewrite(article, 'sad', recording, okReview)
+
+  assert.equal(rewrite.attempts, 2)
+  assert.deepEqual(rewrite.missing, [])
+  // «15%» есть и в исходном тексте — проверяем не число, а инструкцию: перечень
+  // потерянных Anchor появляется только в ретрае, первой попытке его не дают.
+  const firstUser = seen[0]!.find((m) => m.role === 'user')!.content
+  const secondUser = seen[1]!.find((m) => m.role === 'user')!.content
+  assert.doesNotMatch(firstUser, /потеряны|верни их дословно/) // первая попытка Anchor не диктует
+  assert.match(secondUser, /потеряны[^\n]*15%|дословно[^\n]*15%/) // ретрай называет потерянное
 })
 
 test('после всех попыток потеря остаётся — ответ успешный с непустым missing', async () => {
@@ -198,7 +224,6 @@ test('ретрай при совпадении сообщает модели, ч
     mood: 'joyful',
     title: article.title,
     announce: article.announce,
-    anchors: [],
     missing: [],
     unchanged: true,
   })
@@ -572,40 +597,55 @@ test('сгенерированный Rewrite переживает перезап
 
 // --- Промпт и тело запроса (детали, на которых легко потерять время) ---
 
-test('промпт кладёт список Anchor и правило «цифрами, а не прописью»', () => {
+test('первая попытка держит регистр и правило «цифрами, а не прописью»', () => {
   const messages = buildMessages({
     mood: 'ironic',
     title: article.title,
     announce: article.announce,
-    anchors: [{ kind: 'number', text: '15%' }],
     missing: [],
   })
   const all = messages.map((m) => m.content).join('\n')
-  assert.match(all, /15%/)
   assert.match(all, /цифрами/)
   assert.match(all, /ирони/i) // текст регистра ironic вложен
 })
 
-test('промпт требует дословности для чисел, но лишь присутствия — для имён (issue #13)', () => {
+test('первая попытка не содержит перечня Anchor ни в каком виде (issue #14)', () => {
+  // Голый промпт первой попытки: список фрагментов, обязанных уцелеть дословно,
+  // толкал модель вернуть источник слово в слово. Anchor называются только в
+  // ретрае, через missing. Snippet содержит 15%, 1200, 2026, Москв… — ни один из
+  // них не должен всплыть перечнем, и слова-маркеры списка (ДОСЛОВНО/склонять)
+  // тоже.
   const messages = buildMessages({
     mood: 'neutral',
     title: article.title,
     announce: article.announce,
-    anchors: [
+    missing: [],
+  })
+  const all = messages.map((m) => m.content).join('\n')
+  assert.doesNotMatch(all, /ДОСЛОВНО/)
+  assert.doesNotMatch(all, /обязаны присутствовать/)
+  assert.doesNotMatch(all, /склонять/) // раскол «дословно/склоняемо» — только ретрай
+})
+
+test('ретрай требует дословности для чисел, но лишь присутствия — для имён (issue #13)', () => {
+  const messages = buildMessages({
+    mood: 'neutral',
+    title: article.title,
+    announce: article.announce,
+    missing: [
       { kind: 'number', text: '15%' },
       { kind: 'quote', text: 'дословная цитата' },
       { kind: 'name', text: 'Мойзесу' },
     ],
-    missing: [],
   })
-  const system = messages.find((m) => m.role === 'system')!.content
+  const user = messages.find((m) => m.role === 'user')!.content
   // Числа и цитаты — дословно.
-  assert.match(system, /ДОСЛОВНО[^\n]*15%/)
-  assert.match(system, /ДОСЛОВНО[^\n]*дословная цитата/)
+  assert.match(user, /дословно[^\n]*15%/)
+  assert.match(user, /дословно[^\n]*дословная цитата/)
   // Имена — присутствие без требования формы: разрешено склонять.
-  assert.match(system, /имена собственные[^\n]*склонять[^\n]*Мойзесу/i)
+  assert.match(user, /имена[^\n]*склонять[^\n]*Мойзесу|склонять[^\n]*Мойзесу/i)
   // «Мойзесу» не попадает в строку с требованием дословности.
-  const verbatimLine = system.split('\n').find((l) => l.includes('ДОСЛОВНО'))!
+  const verbatimLine = user.split('\n').find((l) => l.includes('дословно'))!
   assert.doesNotMatch(verbatimLine, /Мойзесу/)
 })
 
@@ -614,7 +654,6 @@ test('промпт запрещает приписывать факты спис
     mood: 'joyful',
     title: article.title,
     announce: article.announce,
-    anchors: [],
     missing: [],
   })
   const system = messages.find((m) => m.role === 'system')!.content
@@ -626,7 +665,6 @@ test('ретрай по потерянному имени разрешает с�
     mood: 'sad',
     title: article.title,
     announce: article.announce,
-    anchors: [],
     missing: [
       { kind: 'number', text: '15%' },
       { kind: 'name', text: 'Мойзесу' },
@@ -642,7 +680,6 @@ test('промпт защищает исход события (Outcome) и за�
     mood: 'joyful',
     title: article.title,
     announce: article.announce,
-    anchors: [],
     missing: [],
   })
   const system = messages.find((m) => m.role === 'system')!.content
@@ -656,7 +693,6 @@ test('промпт называет искажение (Distortion) в ретр�
     mood: 'joyful',
     title: article.title,
     announce: article.announce,
-    anchors: [],
     missing: [],
     distortion: 'рост подменён падением',
   })
@@ -670,11 +706,22 @@ test('промпт называет потерянное при ретрае', (
     mood: 'sad',
     title: article.title,
     announce: article.announce,
-    anchors: [{ kind: 'number', text: '15%' }],
     missing: [{ kind: 'number', text: '15%' }],
   })
   const user = messages.find((m) => m.role === 'user')!.content
   assert.match(user, /потеряны/)
+})
+
+test('ретрай просит вернуть потерянное, сохранив регистр, а не переписать заново (issue #14)', () => {
+  const messages = buildMessages({
+    mood: 'joyful',
+    title: article.title,
+    announce: article.announce,
+    missing: [{ kind: 'number', text: '15%' }],
+  })
+  const user = messages.find((m) => m.role === 'user')!.content
+  assert.match(user, /сохрани[^\n]*регистр/i) // держим уже полученный регистр
+  assert.match(user, /не переписывай/i) // а не слепая перегенерация с нуля
 })
 
 test('тело запроса отключает reasoning и требует json_object', () => {

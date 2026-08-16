@@ -144,7 +144,6 @@ export async function generateRewrite(
       mood,
       title: article.title,
       announce: article.announce,
-      anchors,
       missing,
       unchanged,
       distortion,

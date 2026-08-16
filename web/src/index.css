@@ -31,6 +31,29 @@ button:disabled {
   opacity: 0.6;
 }
 
+.moods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.mood {
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+}
+
+.mood.active {
+  background: currentColor;
+  color: Canvas;
+}
+
+.error {
+  color: #c0392b;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -45,6 +68,11 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
 }
 
 .card h2 {

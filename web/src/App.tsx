@@ -236,78 +236,36 @@ function Piece(props: {
   )
 }
 
-// Главная новость на плашке. Она и есть демонстрация: заголовок и текст на
-// плашке звучат в выбранном регистре, поэтому переключатель в выпуске меняет
-// саму новость, а не только подпись.
-function Lead(props: {
-  article: Article
-  selected: string
-  onOpen: (link: string) => void
-}) {
+// Главная новость на плашке. Выпуск — это оглавление: здесь стоит только
+// заголовок источника. Rewrite звучит на странице новости, где рядом виден
+// оригинал и сверка, — переписывать вслепую с оглавления нельзя.
+function Lead(props: { article: Article; onOpen: (link: string) => void }) {
   const { article } = props
-  const { rewrite, loading, error, retry } = useRewrite(
-    article.link,
-    props.selected,
-  )
-  // Заглушка — это не исполнение: текст пришёл как у источника, поэтому ремарку
-  // регистра над ним ставить нельзя, иначе плашка соврёт читателю (issue #8).
-  const performed = rewrite !== null && !loading && !rewrite.stub
 
   return (
-    <>
-      <a
-        className="lead"
-        href={hrefFor(article.link)}
-        onClick={(e) => navigate(e, article.link, props.onOpen)}
-      >
-        <span className="lead-head">
-          <span className="mark">№ 1</span>
-          {performed && (
-            <span className="lead-term">{REGISTER_TERM[props.selected]}</span>
-          )}
-        </span>
-        <span className="lead-body" key={performed ? rewrite.mood : 'source'}>
-          <h2>{performed ? rewrite.title : article.title}</h2>
-          {performed ? (
-            <p>{rewrite.body}</p>
-          ) : (
-            article.announce !== '' && <p>{article.announce}</p>
-          )}
-        </span>
-        <span className="lead-foot apparatus">
-          <span>{article.source}</span>
-          <span>{formatPublished(article.publishedAt)}</span>
-          {performed && <span>оригинал — на странице новости</span>}
-        </span>
-      </a>
-
-      {loading && <p className="notice">Переписываю главную новость…</p>}
-      {error !== null && (
-        <div>
-          <p className="notice">
-            Переписать главную не удалось ({error}) — показан текст источника.
-          </p>
-          <Retry onClick={retry} />
-        </div>
-      )}
-      {rewrite !== null && rewrite.stub && (
-        <div>
-          <p className="notice">
-            Модель недоступна — главная показана как у источника.
-          </p>
-          <Retry onClick={retry} />
-        </div>
-      )}
-    </>
+    <a
+      className="lead"
+      href={hrefFor(article.link)}
+      onClick={(e) => navigate(e, article.link, props.onOpen)}
+    >
+      <span className="lead-head">
+        <span className="mark">№ 1</span>
+      </span>
+      <span className="lead-body">
+        <h2>{article.title}</h2>
+      </span>
+      <span className="lead-foot apparatus">
+        <span>{article.source}</span>
+        <span>{formatPublished(article.publishedAt)}</span>
+      </span>
+    </a>
   )
 }
 
-// Выпуск: главная новость на плашке, остальные — строками стана.
+// Выпуск: главная новость на плашке, остальные — строками стана. Регистры
+// сюда не ставим: выбирать Mood можно только там, где его слышно.
 function Issue(props: {
   articles: Article[]
-  moods: Mood[]
-  selected: string
-  onSelect: (id: string) => void
   onOpen: (link: string) => void
 }) {
   const [lead, ...rest] = props.articles
@@ -318,12 +276,6 @@ function Issue(props: {
 
   return (
     <>
-      <Registers
-        moods={props.moods}
-        selected={props.selected}
-        onSelect={props.onSelect}
-      />
-
       {lead === undefined ? (
         <p className="empty">
           Стан пуст: выпуск ещё не набран. Нажмите «Обновить», чтобы забрать
@@ -331,11 +283,7 @@ function Issue(props: {
         </p>
       ) : (
         <>
-          <Lead
-            article={lead}
-            selected={props.selected}
-            onOpen={props.onOpen}
-          />
+          <Lead article={lead} onOpen={props.onOpen} />
 
           <div className="staff">
             {page.map((article, i) => (
@@ -351,7 +299,6 @@ function Issue(props: {
                 </span>
                 <span>
                   <h2>{article.title}</h2>
-                  {i < 3 && article.announce !== '' && <p>{article.announce}</p>}
                 </span>
                 <span className="entry-time apparatus">
                   {formatShort(article.publishedAt)}
@@ -424,7 +371,9 @@ export function App() {
       <header>
         <div className="masthead">
           <div>
-            <p className="masthead-note">{currentTerm}</p>
+            {/* Ремарка регистра стоит только там, где регистр выбирают, —
+                на странице новости. В выпуске ей нечего описывать. */}
+            {open !== null && <p className="masthead-note">{currentTerm}</p>}
             <h1>
               <a
                 href="/"
@@ -460,13 +409,7 @@ export function App() {
       )}
 
       {open === null ? (
-        <Issue
-          articles={articles}
-          moods={moods}
-          selected={selectedMood}
-          onSelect={setSelectedMood}
-          onOpen={(link) => go(link)}
-        />
+        <Issue articles={articles} onOpen={(link) => go(link)} />
       ) : (
         <Piece
           article={open}

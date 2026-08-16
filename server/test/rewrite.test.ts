@@ -416,6 +416,31 @@ test('промпт Meaning Check: словоформы не считаются �
   assert.match(system, /Outcome|исход/i) // критерий назван через Outcome
 })
 
+test('промпт Meaning Check: дорисованная конкретика (время, место, количество, причина, последствие) — Distortion', () => {
+  const messages = buildMeaningCheckMessages({
+    title: article.title,
+    announce: article.announce,
+    rewrite: { title: 'Ура!', body: 'Рост на 15%' },
+  })
+  const system = messages.find((m) => m.role === 'system')!.content
+  assert.match(system, /врем/i) // добавленное время (например, час суток)
+  assert.match(system, /мест/i) // добавленное место
+  assert.match(system, /количеств/i) // добавленное количество
+  assert.match(system, /причин/i) // добавленная причина
+  assert.match(system, /последств/i) // добавленное последствие
+})
+
+test('промпт Meaning Check: изменение степени/тяжести при сохранённом направлении — Distortion', () => {
+  const messages = buildMeaningCheckMessages({
+    title: article.title,
+    announce: article.announce,
+    rewrite: { title: 'Ура!', body: 'Рост на 15%' },
+  })
+  const system = messages.find((m) => m.role === 'system')!.content
+  assert.match(system, /степен|тяжест/i) // изменение степени или тяжести события
+  assert.match(system, /повреждение.*разрыв/i) // повреждение → разрыв
+})
+
 test('второй проход платится один раз на пару Article + Mood', async () => {
   const db = openDb(':memory:')
   insertArticles(db, [article])

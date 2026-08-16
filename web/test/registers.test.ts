@@ -55,8 +55,9 @@ test('выбранный register окрашен, а не белым по бел
   assert.notEqual(active, base, 'активный register не отличается от неактивного')
   // И не сливается с фоном страницы (тот самый баг «белым по белому»).
   assert.notEqual(active, paper, 'активный register сливается с фоном')
+  const backgroundLike = new Set(['canvas', 'transparent', '#fff', '#ffffff'])
   assert.ok(
-    active !== 'canvas' && active !== 'transparent' && active !== '#fff' && active !== '#ffffff',
+    !backgroundLike.has(active),
     'активный register окрашен цветом фона',
   )
 })

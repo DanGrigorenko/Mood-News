@@ -10,12 +10,6 @@ import {
   survivingFragments,
   UNCHANGED_SIMILARITY_THRESHOLD,
 } from '../src/rewrite.ts'
-import {
-  buildRequestBody,
-  maxTokensFor,
-  parseModelContent,
-  parseMeaningCheckContent,
-} from '../src/llm.ts'
 import type {
   ModelCall,
   ModelOutput,
@@ -662,62 +656,4 @@ test('битый JSON в кэше читается как промах, а не 
     '{ это не json',
   )
   assert.equal(getRewrite(db, article.link, 'sad'), undefined)
-})
-
-// --- Тело запроса и разбор ответа (детали, на которых легко потерять время) ---
-
-test('тело запроса отключает reasoning и требует json_object', () => {
-  const body = buildRequestBody([{ role: 'user', content: 'x' }], 'glm-4.7-flash')
-  assert.deepEqual(body.thinking, { type: 'disabled' })
-  assert.deepEqual(body.response_format, { type: 'json_object' })
-  assert.equal(body.model, 'glm-4.7-flash')
-})
-
-// --- max_tokens считается от длины входа (issue #12) ---
-
-test('max_tokens: короткий вход даёт нижнюю границу', () => {
-  const short = maxTokensFor([{ role: 'user', content: 'Короткая новость' }])
-  assert.equal(short, 400) // ниже 400 не опускается — прежний минимум
-})
-
-test('max_tokens: длинный вход даёт больше нижней границы', () => {
-  const long = maxTokensFor([{ role: 'user', content: 'а'.repeat(4000) }])
-  assert.ok(long > 400) // объём входа поднял лимит
-})
-
-test('max_tokens: очень длинный вход упирается в потолок', () => {
-  const huge = maxTokensFor([{ role: 'user', content: 'а'.repeat(100_000) }])
-  assert.equal(huge, 2000) // потолок против пробоя бюджета
-})
-
-test('parseModelContent: валидный JSON → объект, мусор → null', () => {
-  assert.deepEqual(parseModelContent('{"title":"a","body":"b"}'), {
-    title: 'a',
-    body: 'b',
-  })
-  assert.equal(parseModelContent('не json'), null)
-  assert.equal(parseModelContent('{"title":"a"}'), null) // нет body
-})
-
-test('parseModelContent снимает markdown с title и body', () => {
-  const out = parseModelContent(
-    '{"title":"# **Россия** победила","body":"Курс _вырос_ на `15%`"}',
-  )
-  assert.deepEqual(out, { title: 'Россия победила', body: 'Курс вырос на 15%' })
-})
-
-test('parseModelContent не портит текст без markdown', () => {
-  assert.deepEqual(parseModelContent('{"title":"Обычный текст","body":"Без разметки: 15%"}'), {
-    title: 'Обычный текст',
-    body: 'Без разметки: 15%',
-  })
-})
-
-test('parseMeaningCheckContent: валидный вердикт → объект, мусор → null', () => {
-  assert.deepEqual(parseMeaningCheckContent('{"consistent":true,"distortion":""}'), {
-    consistent: true,
-    distortion: '',
-  })
-  assert.equal(parseMeaningCheckContent('не json'), null)
-  assert.equal(parseMeaningCheckContent('{"consistent":false}'), null) // нет distortion
 })

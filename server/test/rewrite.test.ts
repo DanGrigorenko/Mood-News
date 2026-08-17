@@ -5,30 +5,17 @@ import {
   generateRewrite,
   stubRewrite,
   resolveRewrite,
-  rewriteSchema,
-  unchangedSimilarity,
-  UNCHANGED_SIMILARITY_THRESHOLD,
+  feedbackAccumulator,
 } from '../src/rewrite.ts'
-import {
-  buildMessages,
-  buildMeaningCheckMessages,
-  buildRequestBody,
-  maxTokensFor,
-  parseModelContent,
-  parseMeaningCheckContent,
-} from '../src/llm.ts'
-import type {
-  ChatMessage,
-  ModelCall,
-  ModelOutput,
-  MeaningCheckCall,
-  MeaningCheckOutput,
-} from '../src/llm.ts'
-import type { Article } from '../src/rss.ts'
+import type { ModelCall, MeaningCheckCall } from '../src/llm.ts'
+import type { ModelOutput, MeaningCheckOutput } from '../src/parse.ts'
+import type { RewriteBrief } from '../src/prompt.ts'
+import { verdictOf } from '../src/verdict.ts'
+import { rewriteSchema, type Article } from '../../shared/api.mts'
 
 const article: Article = {
   link: 'https://src.test/1',
-  source: 'Тест',
+  source: 'Коммерсантъ',
   title: 'Собянин выделил 1200 млрд рублей',
   announce: 'Мэр Москвы сообщил о росте на 15% в 2026 году.',
   publishedAt: '2026-08-16T09:00:00.000Z',
@@ -74,6 +61,52 @@ function scriptedReview(outputs: Array<MeaningCheckOutput | null>): {
   }
 }
 
+// --- Накопитель обратной связи Brief (issue #33) ---
+
+// Накопитель — тот самый interface, за которым живёт «что сверки узнали за
+// прошлую попытку»: держит обратную связь между попытками, а async-цикл его не
+// разбирает по полям. next() до первого record() — обратной связи ещё нет
+// (первая попытка вслепую, docs/adr/0009); record() запоминает вердикт попытки.
+
+test('накопитель Brief: до первого record обратной связи нет', () => {
+  const acc = feedbackAccumulator(article)
+  assert.equal(acc.next(), undefined)
+})
+
+test('накопитель Brief: record запоминает потерянный Anchor для следующей попытки', () => {
+  const acc = feedbackAccumulator(article)
+  const lost = { kind: 'number', text: '15%' } as const
+  const out: ModelOutput = { title: 'Собянин выделил 1200 млрд', body: 'Мэр Москвы сообщил о росте в 2026 году.' }
+  acc.record(out, verdictOf({ missing: [lost], similarity: 0, meaningCheck: 'skipped', distortion: '' }))
+
+  const fb = acc.next()!
+  assert.deepEqual(fb.missing.map((a) => a.text), ['15%'])
+  assert.equal(fb.unchanged, false)
+  assert.equal(fb.distortion, '')
+})
+
+test('накопитель Brief: distortion переживает следующий Anchor-провал', () => {
+  // Meaning Check назвал искажение на попытке с целыми Anchor. Следующая попытка
+  // роняет Anchor (Meaning Check по ней не гоняется) — имя искажения обязано
+  // уцелеть, чтобы ретрай его ещё нёс, а не быть затёртым Anchor-провалом.
+  const acc = feedbackAccumulator(article)
+  const distortedOut: ModelOutput = { title: 'т', body: 'т' }
+  acc.record(
+    distortedOut,
+    verdictOf({ missing: [], similarity: 0, meaningCheck: 'failed', distortion: 'рост подменён падением' }),
+  )
+  assert.equal(acc.next()!.distortion, 'рост подменён падением')
+
+  const lost = { kind: 'number', text: '15%' } as const
+  acc.record(
+    { title: 'т', body: 'т' },
+    verdictOf({ missing: [lost], similarity: 0, meaningCheck: 'skipped', distortion: '' }),
+  )
+  const fb = acc.next()!
+  assert.deepEqual(fb.missing.map((a) => a.text), ['15%'])
+  assert.equal(fb.distortion, 'рост подменён падением') // не затёрто Anchor-провалом
+})
+
 // --- Цикл генерации и Fact Check ---
 
 test('генерация проходит с первой попытки, когда все Anchor на месте', async () => {
@@ -101,29 +134,31 @@ test('при потерянном Anchor следует ретрай, назва
   assert.deepEqual(rewrite.missing, [])
 })
 
-test('Anchor нет в первой попытке, но есть во второй после потери (issue #14)', async () => {
-  // Первая попытка теряет «15%», вторая возвращает всё. Проверяем сами промпты:
-  // список Anchor не диктуется заранее, а называется только в ретрае — потерянным.
-  const seen: ChatMessage[][] = []
+test('первой попытке обратной связи нет, ретрай называет потерянный Anchor (issue #14, docs/adr/0009)', async () => {
+  // Первая попытка теряет «15%», вторая возвращает всё. Проверяем захваченный
+  // Brief: обратная связь (в т.ч. перечень потерянных Anchor) на первой попытке
+  // отсутствует и появляется только в ретрае — свойство interface, а не
+  // договорённость внутри текста промпта.
+  const seen: RewriteBrief[] = []
   const outputs: Array<ModelOutput | null> = [
     { title: 'Собянин выделил 1200 млрд', body: 'Мэр Москвы сообщил о росте в 2026 году.' },
     goodRewrite,
   ]
   let i = 0
-  const recording: ModelCall = async (messages) => {
-    seen.push(messages)
+  const recording: ModelCall = async (brief) => {
+    seen.push(brief)
     return outputs[i++] ?? null
   }
   const rewrite = await generateRewrite(article, 'sad', recording, okReview)
 
   assert.equal(rewrite.attempts, 2)
   assert.deepEqual(rewrite.missing, [])
-  // «15%» есть и в исходном тексте — проверяем не число, а инструкцию: перечень
-  // потерянных Anchor появляется только в ретрае, первой попытке его не дают.
-  const firstUser = seen[0]!.find((m) => m.role === 'user')!.content
-  const secondUser = seen[1]!.find((m) => m.role === 'user')!.content
-  assert.doesNotMatch(firstUser, /потеряны|верни их дословно/) // первая попытка Anchor не диктует
-  assert.match(secondUser, /потеряны[^\n]*15%|дословно[^\n]*15%/) // ретрай называет потерянное
+  assert.equal(seen[0]!.feedback, undefined) // первая попытка идёт вслепую
+  // Ретрай называет именно потерянное «15%» — данными Brief, а не подстрокой прозы.
+  assert.deepEqual(
+    seen[1]!.feedback!.missing.map((a) => a.text),
+    ['15%'],
+  )
 })
 
 test('после всех попыток потеря остаётся — ответ успешный с непустым missing', async () => {
@@ -219,16 +254,38 @@ test('neutral, упорно совпадающий со Snippet, после вс
   assert.equal(rewrite.unchanged, true)
 })
 
-test('ретрай при совпадении сообщает модели, что она ничего не изменила', () => {
-  const messages = buildMessages({
-    mood: 'joyful',
-    title: article.title,
-    announce: article.announce,
-    missing: [],
-    unchanged: true,
-  })
-  const user = messages.find((m) => m.role === 'user')!.content
-  assert.match(user, /не изменил|без изменений/)
+// --- Отдаётся лучшая попытка, а не последняя ---
+
+test('копия со всеми Anchor не вытесняет переписывание, потерявшее один Anchor', async () => {
+  // Первая попытка — настоящее переписывание, но «15%» потеряно. Ретрай
+  // возвращает Anchor ценой того, что текст становится копией Snippet: так
+  // ведёт себя живая модель, и последняя попытка тут хуже первой.
+  const lost: ModelOutput = {
+    title: 'Хорошие вести для Москвы',
+    body: 'Собянин объявил: на город направили 1200 млрд рублей по итогам 2026 года.',
+  }
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const model = scriptedModel([lost, echo, echo])
+  const rewrite = await generateRewrite(article, 'joyful', model.call, okReview)
+
+  assert.equal(rewrite.attempts, 3)
+  assert.equal(rewrite.title, lost.title)
+  assert.equal(rewrite.unchanged, false)
+  assert.deepEqual(
+    rewrite.missing.map((a) => a.text),
+    ['15%'],
+  )
+})
+
+test('чистая попытка не вытесняется последующей, если та хуже', async () => {
+  // Вторая попытка не понадобится: чистый результат прерывает цикл. Проверяем,
+  // что именно он и возвращается.
+  const model = scriptedModel([goodRewrite])
+  const rewrite = await generateRewrite(article, 'sad', model.call, okReview)
+
+  assert.equal(rewrite.attempts, 1)
+  assert.equal(rewrite.title, goodRewrite.title)
+  assert.equal(rewrite.meaningCheck, 'passed')
 })
 
 test('невалидный JSON — ещё одна неудачная попытка, а не сбой', async () => {
@@ -245,36 +302,22 @@ test('если модель ни разу не вернула валидный J
   await assert.rejects(() => generateRewrite(article, 'neutral', model.call, okReview), /валидный JSON/)
 })
 
-// --- Мера непохожести: доля уцелевших словесных триграмм (issue #13) ---
+test('ретрай при совпадении несёт уцелевшие куски в Brief', async () => {
+  // Первая попытка — копия Snippet, значит второй Brief обязан назвать
+  // дословно уцелевшие куски и пометить unchanged.
+  const echo: ModelOutput = { title: article.title, body: article.announce }
+  const model = scriptedModel([echo, goodRewrite])
+  const seen: RewriteBrief[] = []
+  const spy: ModelCall = async (brief) => {
+    seen.push(brief)
+    return model.call(brief)
+  }
+  await generateRewrite(article, 'ironic', spy, okReview)
 
-test('unchangedSimilarity: копия Snippet даёт максимум', () => {
-  const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'
-  assert.equal(unchangedSimilarity(snippet, snippet), 1)
-})
-
-test('unchangedSimilarity: перестановка слов и пара синонимов всё ещё выше порога', () => {
-  const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'
-  // Заменены два слова, порядок в основном сохранён — это ещё копия по сути.
-  const near = 'Мэр Москвы заявил о росте на 15 процентов в 2026 году подряд'
-  assert.ok(unchangedSimilarity(near, snippet) >= UNCHANGED_SIMILARITY_THRESHOLD)
-})
-
-test('unchangedSimilarity: настоящее переписывание — ниже порога', () => {
-  const snippet = 'Мэр Москвы сообщил о росте на 15 процентов в 2026 году подряд'
-  const real = 'За 2026 год столичный показатель прибавил 15 процентов — так отчитались власти'
-  assert.ok(unchangedSimilarity(real, snippet) < UNCHANGED_SIMILARITY_THRESHOLD)
-})
-
-// Реальный случай со скриншота (issue #13): срез шапки «МОСКВА, 16 авг» → «16
-// августа» — формально изменение, и сравнение на тождество его пропускало. Мера
-// непохожести обязана считать это unchanged: почти весь текст уцелел дословно.
-test('unchangedSimilarity: замена шапки на дату — по-прежнему unchanged', () => {
-  const snippet =
-    'МОСКВА, 16 авг - РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление'
-  const copy =
-    '16 августа. РИА Новости. Бразильскому защитнику ЦСКА Мойзесу потребуется восстановление'
-  assert.notEqual(snippet, copy) // на тождество — разные строки
-  assert.ok(unchangedSimilarity(copy, snippet) >= UNCHANGED_SIMILARITY_THRESHOLD)
+  assert.equal(seen[1]!.feedback!.unchanged, true)
+  assert.ok(
+    seen[1]!.feedback!.surviving.some((s) => s.includes('мэр москвы сообщил о росте')),
+  )
 })
 
 test('Rewrite выше порога непохожести уходит в ретрай и не кэшируется', async () => {
@@ -325,10 +368,10 @@ test('искажение смысла при целых Anchor не приним
   assert.deepEqual(rewrite.missing, []) // Anchor были целы всё время
 })
 
-test('искажение из Meaning Check названо в промпте следующей попытки', async () => {
-  const seen: string[] = []
-  const model: ModelCall = async (messages) => {
-    seen.push(messages.find((m) => m.role === 'user')!.content)
+test('искажение из Meaning Check названо в Brief следующей попытки', async () => {
+  const seen: RewriteBrief[] = []
+  const model: ModelCall = async (brief) => {
+    seen.push(brief)
     return distorted
   }
   const review = scriptedReview([
@@ -338,8 +381,8 @@ test('искажение из Meaning Check названо в промпте с�
   await generateRewrite(article, 'joyful', model, review.call)
 
   assert.equal(seen.length, 2)
-  assert.doesNotMatch(seen[0]!, /исход события изменён/) // первая попытка — вслепую
-  assert.match(seen[1]!, /исход события изменён/) // ретрай назван, а не слепой
+  assert.equal(seen[0]!.feedback, undefined) // первая попытка — вслепую
+  assert.equal(seen[1]!.feedback!.distortion, 'исход события изменён') // назван как данные Brief
 })
 
 test('неустранённое искажение остаётся в ответе после всех попыток', async () => {
@@ -390,55 +433,6 @@ test('смена одного лишь тона при сохранённом и
 
   assert.equal(rewrite.attempts, 1) // тон сменился, исход цел — ретрая нет
   assert.equal(rewrite.meaningCheck, 'passed')
-})
-
-test('промпт Meaning Check велит судье проверять исход, а не тон', () => {
-  const messages = buildMeaningCheckMessages({
-    title: article.title,
-    announce: article.announce,
-    rewrite: { title: 'Ура!', body: 'Рост на 15%' },
-  })
-  const all = messages.map((m) => m.content).join('\n')
-  assert.match(all, /тон/i) // судью явно просят не придираться к тону
-  assert.match(all, /15%/) // переписанный текст вложен
-  assert.match(all, /Собянин/) // оригинал вложен для сверки
-})
-
-test('промпт Meaning Check: словоформы не считаются подменой, при сомнении consistent', () => {
-  const messages = buildMeaningCheckMessages({
-    title: article.title,
-    announce: article.announce,
-    rewrite: { title: 'Ура!', body: 'Рост на 15%' },
-  })
-  const system = messages.find((m) => m.role === 'system')!.content
-  assert.match(system, /словоформ/i) // разные словоформы — не подмена субъекта
-  assert.match(system, /сомнева|consistent:true/i) // при сомнении — не тревога
-  assert.match(system, /Outcome|исход/i) // критерий назван через Outcome
-})
-
-test('промпт Meaning Check: дорисованная конкретика (время, место, количество, причина, последствие) — Distortion', () => {
-  const messages = buildMeaningCheckMessages({
-    title: article.title,
-    announce: article.announce,
-    rewrite: { title: 'Ура!', body: 'Рост на 15%' },
-  })
-  const system = messages.find((m) => m.role === 'system')!.content
-  assert.match(system, /врем/i) // добавленное время (например, час суток)
-  assert.match(system, /мест/i) // добавленное место
-  assert.match(system, /количеств/i) // добавленное количество
-  assert.match(system, /причин/i) // добавленная причина
-  assert.match(system, /последств/i) // добавленное последствие
-})
-
-test('промпт Meaning Check: изменение степени/тяжести при сохранённом направлении — Distortion', () => {
-  const messages = buildMeaningCheckMessages({
-    title: article.title,
-    announce: article.announce,
-    rewrite: { title: 'Ура!', body: 'Рост на 15%' },
-  })
-  const system = messages.find((m) => m.role === 'system')!.content
-  assert.match(system, /степен|тяжест/i) // изменение степени или тяжести события
-  assert.match(system, /повреждение.*разрыв/i) // повреждение → разрыв
 })
 
 test('второй проход платится один раз на пару Article + Mood', async () => {
@@ -620,187 +614,29 @@ test('сгенерированный Rewrite переживает перезап
   }
 })
 
-// --- Промпт и тело запроса (детали, на которых легко потерять время) ---
+// --- Валидация записи кэша на чтении ---
 
-test('первая попытка держит регистр и правило «цифрами, а не прописью»', () => {
-  const messages = buildMessages({
-    mood: 'ironic',
-    title: article.title,
-    announce: article.announce,
-    missing: [],
-  })
-  const all = messages.map((m) => m.content).join('\n')
-  assert.match(all, /цифрами/)
-  assert.match(all, /ирони/i) // текст регистра ironic вложен
-})
-
-test('первая попытка не содержит перечня Anchor ни в каком виде (issue #14)', () => {
-  // Голый промпт первой попытки: список фрагментов, обязанных уцелеть дословно,
-  // толкал модель вернуть источник слово в слово. Anchor называются только в
-  // ретрае, через missing. Snippet содержит 15%, 1200, 2026, Москв… — ни один из
-  // них не должен всплыть перечнем, и слова-маркеры списка (ДОСЛОВНО/склонять)
-  // тоже.
-  const messages = buildMessages({
-    mood: 'neutral',
-    title: article.title,
-    announce: article.announce,
-    missing: [],
-  })
-  const all = messages.map((m) => m.content).join('\n')
-  assert.doesNotMatch(all, /ДОСЛОВНО/)
-  assert.doesNotMatch(all, /обязаны присутствовать/)
-  assert.doesNotMatch(all, /склонять/) // раскол «дословно/склоняемо» — только ретрай
-})
-
-test('ретрай требует дословности для чисел, но лишь присутствия — для имён (issue #13)', () => {
-  const messages = buildMessages({
-    mood: 'neutral',
-    title: article.title,
-    announce: article.announce,
-    missing: [
-      { kind: 'number', text: '15%' },
-      { kind: 'quote', text: 'дословная цитата' },
-      { kind: 'name', text: 'Мойзесу' },
-    ],
-  })
-  const user = messages.find((m) => m.role === 'user')!.content
-  // Числа и цитаты — дословно.
-  assert.match(user, /дословно[^\n]*15%/)
-  assert.match(user, /дословно[^\n]*дословная цитата/)
-  // Имена — присутствие без требования формы: разрешено склонять.
-  assert.match(user, /имена[^\n]*склонять[^\n]*Мойзесу|склонять[^\n]*Мойзесу/i)
-  // «Мойзесу» не попадает в строку с требованием дословности.
-  const verbatimLine = user.split('\n').find((l) => l.includes('дословно'))!
-  assert.doesNotMatch(verbatimLine, /Мойзесу/)
-})
-
-test('промпт запрещает приписывать факты списком в конце (issue #13)', () => {
-  const messages = buildMessages({
-    mood: 'joyful',
-    title: article.title,
-    announce: article.announce,
-    missing: [],
-  })
-  const system = messages.find((m) => m.role === 'system')!.content
-  assert.match(system, /списк|перечн/i)
-})
-
-test('ретрай по потерянному имени разрешает склонение, а по числу — нет', () => {
-  const messages = buildMessages({
-    mood: 'sad',
-    title: article.title,
-    announce: article.announce,
-    missing: [
-      { kind: 'number', text: '15%' },
-      { kind: 'name', text: 'Мойзесу' },
-    ],
-  })
-  const user = messages.find((m) => m.role === 'user')!.content
-  assert.match(user, /дословно[^\n]*15%/)
-  assert.match(user, /склонять[^\n]*Мойзесу/)
-})
-
-test('промпт защищает исход события (Outcome) и запрещает глумиться над пострадавшими', () => {
-  const messages = buildMessages({
-    mood: 'joyful',
-    title: article.title,
-    announce: article.announce,
-    missing: [],
-  })
-  const system = messages.find((m) => m.role === 'system')!.content
-  assert.match(system, /исход события|Outcome/) // Outcome неизменяем (docs/adr/0007)
-  assert.match(system, /упало значит упало|погиб значит погиб/) // явное правило направления
-  assert.match(system, /не глумись|пострадавш/i) // общий пол на все Mood
-})
-
-test('промпт называет искажение (Distortion) в ретрае', () => {
-  const messages = buildMessages({
-    mood: 'joyful',
-    title: article.title,
-    announce: article.announce,
-    missing: [],
-    distortion: 'рост подменён падением',
-  })
-  const user = messages.find((m) => m.role === 'user')!.content
-  assert.match(user, /рост подменён падением/) // названо, а не слепой ретрай
-  assert.match(user, /исход события/) // говорит про Outcome словом глоссария
-})
-
-test('промпт называет потерянное при ретрае', () => {
-  const messages = buildMessages({
-    mood: 'sad',
-    title: article.title,
-    announce: article.announce,
-    missing: [{ kind: 'number', text: '15%' }],
-  })
-  const user = messages.find((m) => m.role === 'user')!.content
-  assert.match(user, /потеряны/)
-})
-
-test('ретрай просит вернуть потерянное, сохранив регистр, а не переписать заново (issue #14)', () => {
-  const messages = buildMessages({
-    mood: 'joyful',
-    title: article.title,
-    announce: article.announce,
-    missing: [{ kind: 'number', text: '15%' }],
-  })
-  const user = messages.find((m) => m.role === 'user')!.content
-  assert.match(user, /сохрани[^\n]*регистр/i) // держим уже полученный регистр
-  assert.match(user, /не переписывай/i) // а не слепая перегенерация с нуля
-})
-
-test('тело запроса отключает reasoning и требует json_object', () => {
-  const body = buildRequestBody([{ role: 'user', content: 'x' }], 'glm-4.7-flash')
-  assert.deepEqual(body.thinking, { type: 'disabled' })
-  assert.deepEqual(body.response_format, { type: 'json_object' })
-  assert.equal(body.model, 'glm-4.7-flash')
-})
-
-// --- max_tokens считается от длины входа (issue #12) ---
-
-test('max_tokens: короткий вход даёт нижнюю границу', () => {
-  const short = maxTokensFor([{ role: 'user', content: 'Короткая новость' }])
-  assert.equal(short, 400) // ниже 400 не опускается — прежний минимум
-})
-
-test('max_tokens: длинный вход даёт больше нижней границы', () => {
-  const long = maxTokensFor([{ role: 'user', content: 'а'.repeat(4000) }])
-  assert.ok(long > 400) // объём входа поднял лимит
-})
-
-test('max_tokens: очень длинный вход упирается в потолок', () => {
-  const huge = maxTokensFor([{ role: 'user', content: 'а'.repeat(100_000) }])
-  assert.equal(huge, 2000) // потолок против пробоя бюджета
-})
-
-test('parseModelContent: валидный JSON → объект, мусор → null', () => {
-  assert.deepEqual(parseModelContent('{"title":"a","body":"b"}'), {
-    title: 'a',
-    body: 'b',
-  })
-  assert.equal(parseModelContent('не json'), null)
-  assert.equal(parseModelContent('{"title":"a"}'), null) // нет body
-})
-
-test('parseModelContent снимает markdown с title и body', () => {
-  const out = parseModelContent(
-    '{"title":"# **Россия** победила","body":"Курс _вырос_ на `15%`"}',
+test('устаревшая запись кэша (не проходит схему Rewrite) читается как промах', () => {
+  const db = openDb(':memory:')
+  insertArticles(db, [article])
+  // Прямая запись строки, валидной как JSON, но не проходящей rewriteSchema:
+  // так выглядела бы запись, оставшаяся от прежней формы Rewrite. На чтении она
+  // должна обнаружиться и не доехать до экрана — getRewrite отдаёт промах.
+  db.prepare('INSERT INTO rewrites (link, mood, data) VALUES (?, ?, ?)').run(
+    article.link,
+    'joyful',
+    JSON.stringify({ mood: 'joyful', title: 'заголовок' }), // не хватает полей
   )
-  assert.deepEqual(out, { title: 'Россия победила', body: 'Курс вырос на 15%' })
+  assert.equal(getRewrite(db, article.link, 'joyful'), undefined)
 })
 
-test('parseModelContent не портит текст без markdown', () => {
-  assert.deepEqual(parseModelContent('{"title":"Обычный текст","body":"Без разметки: 15%"}'), {
-    title: 'Обычный текст',
-    body: 'Без разметки: 15%',
-  })
-})
-
-test('parseMeaningCheckContent: валидный вердикт → объект, мусор → null', () => {
-  assert.deepEqual(parseMeaningCheckContent('{"consistent":true,"distortion":""}'), {
-    consistent: true,
-    distortion: '',
-  })
-  assert.equal(parseMeaningCheckContent('не json'), null)
-  assert.equal(parseMeaningCheckContent('{"consistent":false}'), null) // нет distortion
+test('битый JSON в кэше читается как промах, а не роняет чтение', () => {
+  const db = openDb(':memory:')
+  insertArticles(db, [article])
+  db.prepare('INSERT INTO rewrites (link, mood, data) VALUES (?, ?, ?)').run(
+    article.link,
+    'sad',
+    '{ это не json',
+  )
+  assert.equal(getRewrite(db, article.link, 'sad'), undefined)
 })

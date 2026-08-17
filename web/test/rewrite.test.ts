@@ -1,11 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  factCheckSummary,
-  errorText,
-  rewriteResponseSchema,
-  type Rewrite,
-} from '../src/rewrite.ts'
+import { factCheckSummary } from '../src/rewrite.ts'
+import { rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
 
 const base: Rewrite = {
   mood: 'joyful',
@@ -25,7 +21,7 @@ test('rewriteResponseSchema принимает пометку unchanged', () => 
   const parsed = rewriteResponseSchema.parse({
     article: {
       link: 'https://example.com/a',
-      source: 'S',
+      source: 'РИА Новости',
       title: 'T',
       announce: 'A',
       publishedAt: '',
@@ -39,7 +35,7 @@ test('rewriteResponseSchema принимает провал Meaning Check с dis
   const parsed = rewriteResponseSchema.parse({
     article: {
       link: 'https://example.com/a',
-      source: 'S',
+      source: 'РИА Новости',
       title: 'T',
       announce: 'A',
       publishedAt: '',
@@ -55,7 +51,7 @@ test('rewriteResponseSchema отвергает неизвестное состо
     rewriteResponseSchema.parse({
       article: {
         link: 'https://example.com/a',
-        source: 'S',
+        source: 'РИА Новости',
         title: 'T',
         announce: 'A',
         publishedAt: '',
@@ -80,20 +76,12 @@ test('factCheckSummary вычитает потерянные Anchor из сох�
   assert.equal(factCheckSummary(lost), 'факты сохранены: 10/12')
 })
 
-test('errorText достаёт причину из тела ответа сервера', () => {
-  assert.equal(errorText(400, { error: 'неизвестный Mood: foo' }), 'неизвестный Mood: foo')
-})
-
-test('errorText откатывается на статус, если тело без error', () => {
-  assert.equal(errorText(502, null), 'сервер ответил 502')
-})
-
 test('rewriteResponseSchema отвергает ответ без rewrite', () => {
   assert.throws(() =>
     rewriteResponseSchema.parse({
       article: {
         link: 'https://example.com/a',
-        source: 'S',
+        source: 'РИА Новости',
         title: 'T',
         announce: 'A',
         publishedAt: '',

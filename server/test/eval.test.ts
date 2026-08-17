@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { summarize, formatSummary } from '../eval/aggregate.ts'
-import type { Rewrite } from '../src/rewrite.ts'
+import type { Rewrite } from '../../shared/api.mts'
 import { MIN_SNIPPET_LENGTH } from '../src/ingest.ts'
 
 // Корпус eval — данные с диска; читаем его так же, как раннер.

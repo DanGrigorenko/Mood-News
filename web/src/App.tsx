@@ -1,21 +1,25 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { formatPublished, formatShort } from './articles.ts'
+import { factCheckSummary } from './rewrite.ts'
+import { apiFetch } from './api.ts'
 import {
-  fetchArticles,
-  runIngest,
-  formatAdded,
-  formatPublished,
-  formatShort,
+  moodsResponseSchema,
   type Article,
-} from './articles.ts'
-import { fetchMoods, type Mood } from './moods.ts'
-import { fetchRewrite, factCheckSummary, type Rewrite } from './rewrite.ts'
+  type Mood,
+  type MoodOption,
+  type Rewrite,
+} from '../../shared/api.mts'
+import { createRewriteStore, type RewriteStore } from './useRewrite.ts'
+import { createIssueStore } from './useIssue.ts'
+import { newsHref, interceptClick, type ClickModifiers } from './address.ts'
 import { useRoute } from './route.ts'
 import { AnchorMark, ArrowBack, ArrowOut, Brace } from './notation.tsx'
 
 // Итальянская ремарка рядом с русским названием Mood — то, чем в партитуре
 // задают характер исполнения. Список Mood по-прежнему приходит с сервера
-// (issue #5); здесь только подпись к уже полученному id.
-const REGISTER_TERM: Record<string, string> = {
+// (issue #5); здесь только подпись к уже полученному id. Ключ — Mood из общего
+// контракта, а не строка: пропущенный или лишний регистр — ошибка компиляции.
+const REGISTER_TERM: Record<Mood, string> = {
   neutral: 'senza espressione',
   joyful: 'giocoso',
   sad: 'mesto',
@@ -27,54 +31,35 @@ const REGISTER_TERM: Record<string, string> = {
 const PAGE = 30
 
 // У каждой новости свой адрес, поэтому переходы — настоящие ссылки: их можно
-// открыть в новой вкладке, скопировать и увидеть в статусной строке. Клик
-// перехватываем только для обычного левого клика без модификаторов.
-function hrefFor(link: string): string {
-  return `?n=${encodeURIComponent(link)}`
-}
-
-function navigate(
-  event: MouseEvent<HTMLAnchorElement>,
+// открыть в новой вкладке, скопировать и увидеть в статусной строке. Формат
+// адреса и правило «перехватываем ли клик» живут в address.ts (issue #31).
+function onNavigate(
+  event: ClickModifiers & { preventDefault: () => void },
   link: string,
   go: (link: string) => void,
 ) {
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  if (!interceptClick(event)) return
   event.preventDefault()
   go(link)
 }
 
-// Rewrite для пары «Article + Mood». Генерация ленивая и может упасть (модель
-// недоступна, лимит запросов), поэтому наружу отдаём и ошибку, и способ
-// повторить.
-function useRewrite(link: string | undefined, mood: string) {
-  const [rewrite, setRewrite] = useState<Rewrite | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [attempt, setAttempt] = useState(0)
-
-  // cancelled гасит гонку, если Mood переключили быстрее, чем пришёл ответ.
+// Rewrite для пары «Article + Mood». Логика состояния — гашение гонки при
+// быстром переключении Mood, ошибка, повтор — живёт отдельным module
+// useRewrite.ts и проверяется без React и без DOM (issue #25). Здесь только
+// подписка на его состояние: select переспрашивает Rewrite при смене пары.
+// Само хранилище передаётся из корня (issue #32): оно живёт дольше страницы
+// новости, поэтому возврат в выпуск не стирает уже полученные Rewrite.
+function useRewrite(store: RewriteStore, link: string, mood: Mood) {
+  const state = useSyncExternalStore(store.subscribe, store.getState)
   useEffect(() => {
-    if (link === undefined) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    setRewrite(null)
-    fetchRewrite(link, mood)
-      .then((r) => {
-        if (!cancelled) setRewrite(r)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [link, mood, attempt])
-
-  return { rewrite, loading, error, retry: () => setAttempt(attempt + 1) }
+    store.select(link, mood)
+  }, [store, link, mood])
+  return {
+    rewrite: state.rewrite,
+    loading: state.loading,
+    error: state.error,
+    retry: store.retry,
+  }
 }
 
 function Retry(props: { onClick: () => void }) {
@@ -88,9 +73,9 @@ function Retry(props: { onClick: () => void }) {
 // Указания исполнения над строкой. Один и тот же ряд стоит и в выпуске, и на
 // странице новости.
 function Registers(props: {
-  moods: Mood[]
-  selected: string
-  onSelect: (id: string) => void
+  moods: MoodOption[]
+  selected: Mood
+  onSelect: (id: Mood) => void
 }) {
   return (
     <nav className="registers" aria-label="Настроение">
@@ -103,7 +88,7 @@ function Registers(props: {
           onClick={() => props.onSelect(mood.id)}
         >
           <span className="register-name">{mood.label}</span>
-          <span className="register-term">{REGISTER_TERM[mood.id] ?? ''}</span>
+          <span className="register-term">{REGISTER_TERM[mood.id]}</span>
         </button>
       ))}
     </nav>
@@ -142,13 +127,15 @@ function FactCheck(props: { rewrite: Rewrite }) {
 function Piece(props: {
   article: Article
   index: number
-  moods: Mood[]
-  selected: string
-  onSelect: (id: string) => void
+  moods: MoodOption[]
+  selected: Mood
+  store: RewriteStore
+  onSelect: (id: Mood) => void
   onBack: () => void
 }) {
   const { article } = props
   const { rewrite, loading, error, retry } = useRewrite(
+    props.store,
     article.link,
     props.selected,
   )
@@ -236,78 +223,36 @@ function Piece(props: {
   )
 }
 
-// Главная новость на плашке. Она и есть демонстрация: заголовок и текст на
-// плашке звучат в выбранном регистре, поэтому переключатель в выпуске меняет
-// саму новость, а не только подпись.
-function Lead(props: {
-  article: Article
-  selected: string
-  onOpen: (link: string) => void
-}) {
+// Главная новость на плашке. Выпуск — это оглавление: здесь стоит только
+// заголовок источника. Rewrite звучит на странице новости, где рядом виден
+// оригинал и сверка, — переписывать вслепую с оглавления нельзя.
+function Lead(props: { article: Article; onOpen: (link: string) => void }) {
   const { article } = props
-  const { rewrite, loading, error, retry } = useRewrite(
-    article.link,
-    props.selected,
-  )
-  // Заглушка — это не исполнение: текст пришёл как у источника, поэтому ремарку
-  // регистра над ним ставить нельзя, иначе плашка соврёт читателю (issue #8).
-  const performed = rewrite !== null && !loading && !rewrite.stub
 
   return (
-    <>
-      <a
-        className="lead"
-        href={hrefFor(article.link)}
-        onClick={(e) => navigate(e, article.link, props.onOpen)}
-      >
-        <span className="lead-head">
-          <span className="mark">№ 1</span>
-          {performed && (
-            <span className="lead-term">{REGISTER_TERM[props.selected]}</span>
-          )}
-        </span>
-        <span className="lead-body" key={performed ? rewrite.mood : 'source'}>
-          <h2>{performed ? rewrite.title : article.title}</h2>
-          {performed ? (
-            <p>{rewrite.body}</p>
-          ) : (
-            article.announce !== '' && <p>{article.announce}</p>
-          )}
-        </span>
-        <span className="lead-foot apparatus">
-          <span>{article.source}</span>
-          <span>{formatPublished(article.publishedAt)}</span>
-          {performed && <span>оригинал — на странице новости</span>}
-        </span>
-      </a>
-
-      {loading && <p className="notice">Переписываю главную новость…</p>}
-      {error !== null && (
-        <div>
-          <p className="notice">
-            Переписать главную не удалось ({error}) — показан текст источника.
-          </p>
-          <Retry onClick={retry} />
-        </div>
-      )}
-      {rewrite !== null && rewrite.stub && (
-        <div>
-          <p className="notice">
-            Модель недоступна — главная показана как у источника.
-          </p>
-          <Retry onClick={retry} />
-        </div>
-      )}
-    </>
+    <a
+      className="lead"
+      href={newsHref(article.link)}
+      onClick={(e) => onNavigate(e, article.link, props.onOpen)}
+    >
+      <span className="lead-head">
+        <span className="mark">№ 1</span>
+      </span>
+      <span className="lead-body">
+        <h2>{article.title}</h2>
+      </span>
+      <span className="lead-foot apparatus">
+        <span>{article.source}</span>
+        <span>{formatPublished(article.publishedAt)}</span>
+      </span>
+    </a>
   )
 }
 
-// Выпуск: главная новость на плашке, остальные — строками стана.
+// Выпуск: главная новость на плашке, остальные — строками стана. Регистры
+// сюда не ставим: выбирать Mood можно только там, где его слышно.
 function Issue(props: {
   articles: Article[]
-  moods: Mood[]
-  selected: string
-  onSelect: (id: string) => void
   onOpen: (link: string) => void
 }) {
   const [lead, ...rest] = props.articles
@@ -318,12 +263,6 @@ function Issue(props: {
 
   return (
     <>
-      <Registers
-        moods={props.moods}
-        selected={props.selected}
-        onSelect={props.onSelect}
-      />
-
       {lead === undefined ? (
         <p className="empty">
           Стан пуст: выпуск ещё не набран. Нажмите «Обновить», чтобы забрать
@@ -331,19 +270,15 @@ function Issue(props: {
         </p>
       ) : (
         <>
-          <Lead
-            article={lead}
-            selected={props.selected}
-            onOpen={props.onOpen}
-          />
+          <Lead article={lead} onOpen={props.onOpen} />
 
           <div className="staff">
             {page.map((article, i) => (
               <a
                 key={article.link}
                 className={i < 3 ? 'entry rank-major' : 'entry rank-minor'}
-                href={hrefFor(article.link)}
-                onClick={(e) => navigate(e, article.link, props.onOpen)}
+                href={newsHref(article.link)}
+                onClick={(e) => onNavigate(e, article.link, props.onOpen)}
               >
                 <span className="entry-clef apparatus">
                   <span>№ {i + 2}</span>
@@ -351,7 +286,6 @@ function Issue(props: {
                 </span>
                 <span>
                   <h2>{article.title}</h2>
-                  {i < 3 && article.announce !== '' && <p>{article.announce}</p>}
                 </span>
                 <span className="entry-time apparatus">
                   {formatShort(article.publishedAt)}
@@ -375,56 +309,45 @@ function Issue(props: {
 }
 
 export function App() {
-  const [articles, setArticles] = useState<Article[]>([])
-  const [moods, setMoods] = useState<Mood[]>([])
-  const [selectedMood, setSelectedMood] = useState('neutral')
-  const [error, setError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  // Состояние Выпуска (список Article, уведомление, ошибка, идёт ли обновление) и
+  // его переходы (загрузка, «Обновить») живут в хранилище Выпуска, проверяемом
+  // без React и без DOM (issue #31). Корень — тонкая подписка на него.
+  const [issueStore] = useState(createIssueStore)
+  const issue = useSyncExternalStore(issueStore.subscribe, issueStore.getState)
+  // Хранилище Rewrite живёт на уровне выбранного Mood, а не внутри страницы
+  // новости: возврат в выпуск размонтирует страницу, но не хранилище, поэтому
+  // повторное открытие уже полученной пары показывает Rewrite сразу (issue #32).
+  const [rewriteStore] = useState(createRewriteStore)
+  const [moods, setMoods] = useState<MoodOption[]>([])
+  const [moodsError, setMoodsError] = useState<string | null>(null)
+  const [selectedMood, setSelectedMood] = useState<Mood>('neutral')
   const [openLink, go] = useRoute()
 
-  async function load() {
-    try {
-      setArticles(await fetchArticles())
-      setError(null)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
+  // Список Mood — отдельный seam (приходит с сервера, issue #5), не часть выпуска.
+  // Идёт через общий apiFetch с общей схемой контракта (shared/api.mts): своего
+  // module ради alias'а типа и однострочного запроса больше нет (issue #27).
   useEffect(() => {
-    void load()
-    fetchMoods()
-      .then(setMoods)
+    void issueStore.load()
+    apiFetch('/api/moods', moodsResponseSchema)
+      .then((res) => setMoods(res.moods))
       .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
+        setMoodsError(err instanceof Error ? err.message : String(err)),
       )
-  }, [])
+  }, [issueStore])
 
-  async function refresh() {
-    setRefreshing(true)
-    setNotice(null)
-    try {
-      const added = await runIngest()
-      setNotice(formatAdded(added))
-      await load()
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
-  const openIndex = articles.findIndex((a) => a.link === openLink)
-  const open = openIndex === -1 ? null : articles[openIndex]
-  const currentTerm = REGISTER_TERM[selectedMood] ?? ''
+  const openIndex = issue.articles.findIndex((a) => a.link === openLink)
+  const open = openIndex === -1 ? null : issue.articles[openIndex]
+  const currentTerm = REGISTER_TERM[selectedMood]
+  const error = issue.error ?? moodsError
 
   return (
     <main className="sheet">
       <header>
         <div className="masthead">
           <div>
-            <p className="masthead-note">{currentTerm}</p>
+            {/* Ремарка регистра стоит только там, где регистр выбирают, —
+                на странице новости. В выпуске ей нечего описывать. */}
+            {open !== null && <p className="masthead-note">{currentTerm}</p>}
             <h1>
               <a
                 href="/"
@@ -439,40 +362,35 @@ export function App() {
           </div>
           <button
             className="refresh"
-            onClick={() => void refresh()}
-            disabled={refreshing}
+            onClick={() => void issueStore.refresh()}
+            disabled={issue.refreshing}
           >
-            {refreshing ? 'Забираю…' : 'Обновить'}
+            {issue.refreshing ? 'Забираю…' : 'Обновить'}
           </button>
         </div>
         <div className="double-barline" />
       </header>
 
-      {notice !== null && <p className="notice">{notice}</p>}
+      {issue.notice !== null && <p className="notice">{issue.notice}</p>}
       {error !== null && (
         <p className="editorial editorial-alert">ошибка: {error}</p>
       )}
 
-      {openLink !== null && open === null && articles.length > 0 && (
+      {openLink !== null && open === null && issue.articles.length > 0 && (
         <p className="editorial editorial-alert">
           такой новости в выпуске нет — возможно, она уже ушла из ленты
         </p>
       )}
 
       {open === null ? (
-        <Issue
-          articles={articles}
-          moods={moods}
-          selected={selectedMood}
-          onSelect={setSelectedMood}
-          onOpen={(link) => go(link)}
-        />
+        <Issue articles={issue.articles} onOpen={(link) => go(link)} />
       ) : (
         <Piece
           article={open}
           index={openIndex + 1}
           moods={moods}
           selected={selectedMood}
+          store={rewriteStore}
           onSelect={setSelectedMood}
           onBack={() => go(null)}
         />

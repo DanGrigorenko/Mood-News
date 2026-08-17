@@ -1,31 +1,22 @@
-import { z } from 'zod'
-
-// Форма Article, как её отдаёт сервер. Валидируем zod-ом: пришедшее по сети —
-// внешние данные (CODING_STANDARDS).
-export const articleSchema = z.object({
-  link: z.string().url(),
-  source: z.string(),
-  title: z.string(),
-  announce: z.string(),
-  publishedAt: z.string(),
-})
-
-export type Article = z.infer<typeof articleSchema>
-
-export const articlesSchema = z.object({ articles: z.array(articleSchema) })
-
-const ingestResultSchema = z.object({ added: z.number() })
+// Форма Article и конверты ответов описаны один раз в общем контракте
+// (shared/api.mts) и импортируются сервером и фронтом напрямую. Здесь остаётся
+// только настоящая логика фронта: запросы списка/Ingest и форматирование.
+import {
+  articlesResponseSchema,
+  ingestResultSchema,
+  type Article,
+  type IngestResult,
+} from '../../shared/api.mts'
+import { apiFetch } from './api.ts'
 
 export async function fetchArticles(): Promise<Article[]> {
-  const res = await fetch('/api/articles')
-  if (!res.ok) throw new Error(`/api/articles ответил ${res.status}`)
-  return articlesSchema.parse(await res.json()).articles
+  return (await apiFetch('/api/articles', articlesResponseSchema)).articles
 }
 
-export async function runIngest(): Promise<number> {
-  const res = await fetch('/api/ingest', { method: 'POST' })
-  if (!res.ok) throw new Error(`/api/ingest ответил ${res.status}`)
-  return ingestResultSchema.parse(await res.json()).added
+// Ingest отдаёт и добавленное, и отброшенное: погасшая лента должна быть видна
+// читателю (issue #30), поэтому наружу идёт весь результат, а не одно added.
+export async function runIngest(): Promise<IngestResult> {
+  return apiFetch('/api/ingest', ingestResultSchema, { method: 'POST' })
 }
 
 // Русская форма числительного «новость» для отчёта кнопки «Обновить».
@@ -38,10 +29,14 @@ function pluralNews(n: number): string {
   return 'новостей'
 }
 
-export function formatAdded(added: number): string {
-  if (added === 0) return 'Новых новостей нет'
+// Отчёт кнопки «Обновить». Отброшенное (недоступный текст) показывается рядом с
+// добавленным, чтобы погасшая лента была видна читателю (issue #30). Ничего не
+// отброшено — про отброшенное молчим.
+export function formatAdded(added: number, skipped = 0): string {
+  const dropped = skipped > 0 ? `, отброшено ${skipped}` : ''
+  if (added === 0) return `Новых новостей нет${dropped}`
   const verb = added % 10 === 1 && added % 100 !== 11 ? 'Добавлена' : 'Добавлено'
-  return `${verb} ${added} ${pluralNews(added)}`
+  return `${verb} ${added} ${pluralNews(added)}${dropped}`
 }
 
 // Короткая форма для строк выпуска: полная дата занимает две строки и рвёт

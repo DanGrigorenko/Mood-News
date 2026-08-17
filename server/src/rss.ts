@@ -1,18 +1,8 @@
 import { XMLParser } from 'fast-xml-parser'
-import { z } from 'zod'
 
-// Article в том виде, в каком его отдала лента: title, ссылка, дата и announce
-// из RSS (короткий анонс). Полный текст статьи Ingest забирает со страницы уже
-// после parseFeed и кладёт в announce вместо анонса (docs/adr/0006, ingest.ts).
-export const articleSchema = z.object({
-  link: z.string().url(),
-  source: z.string(),
-  title: z.string().min(1),
-  announce: z.string(),
-  publishedAt: z.string(),
-})
-
-export type Article = z.infer<typeof articleSchema>
+// Форма Article описана один раз в общем контракте shared/api.mts (ответ API) и
+// оттуда же валидирует ленту при разборе: сущность одна на проводе и в парсере.
+import { articleSchema, type Article, type Source } from '../../shared/api.mts'
 
 const parser = new XMLParser({ ignoreAttributes: true, trimValues: true })
 
@@ -38,7 +28,7 @@ function toIso(pubDate: unknown): string {
 
 // Чистая функция: XML ленты → список Article. Сеть и хранилище снаружи.
 // На битом XML или отсутствии item возвращает [], а не бросает.
-export function parseFeed(xml: string, source: string): Article[] {
+export function parseFeed(xml: string, source: Source): Article[] {
   let parsed: unknown
   try {
     parsed = parser.parse(xml)

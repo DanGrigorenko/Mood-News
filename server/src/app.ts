@@ -3,9 +3,16 @@ import type { DatabaseSync } from 'node:sqlite'
 import { healthPayload } from './health.ts'
 import { listArticles, getArticle } from './db.ts'
 import { ingest } from './ingest.ts'
-import { moodSchema, moodsPayload } from './mood.ts'
+import { moodsPayload } from './mood.ts'
 import { resolveRewrite } from './rewrite.ts'
 import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from './llm.ts'
+import {
+  articlesResponseSchema,
+  ingestResultSchema,
+  moodSchema,
+  moodsResponseSchema,
+  rewriteResponseSchema,
+} from '../../shared/api.mts'
 
 // HTTP-обвязка тестами не покрывается (CODING_STANDARDS): роуты — тонкие
 // оболочки над проверяемой логикой (healthPayload, listArticles, ingest,
@@ -16,10 +23,14 @@ export function createApp(db: DatabaseSync): Hono {
   app.get('/api/health', (c) => c.json(healthPayload()))
 
   // Список Mood с человеческими названиями — чтобы фронт не дублировал его.
-  app.get('/api/moods', (c) => c.json(moodsPayload()))
+  // Ответ прогоняется через общую схему контракта: сервер отдаёт ровно ту форму,
+  // которую разбирает фронт (shared/api.mts).
+  app.get('/api/moods', (c) => c.json(moodsResponseSchema.parse(moodsPayload())))
 
-  // Грид новостей: отдаём сохранённые Article как есть.
-  app.get('/api/articles', (c) => c.json({ articles: listArticles(db) }))
+  // Грид новостей: отдаём сохранённые Article как есть, проверив общей схемой.
+  app.get('/api/articles', (c) =>
+    c.json(articlesResponseSchema.parse({ articles: listArticles(db) })),
+  )
 
   // Article в конкретном Mood: переписанные заголовок и тело плюс Fact Check.
   // :id — ссылка Article (первичный ключ), у фронта она encodeURIComponent.
@@ -40,7 +51,7 @@ export function createApp(db: DatabaseSync): Hono {
         meaningCheckModel: callMeaningCheckOverHttp,
         useStub: !hasApiKey(),
       })
-      return c.json({ article, rewrite })
+      return c.json(rewriteResponseSchema.parse({ article, rewrite }))
     } catch (err) {
       // Недоступность или таймаут модели — внятная 502, а не пятисотка без слов.
       const reason = err instanceof Error ? err.message : String(err)
@@ -49,10 +60,11 @@ export function createApp(db: DatabaseSync): Hono {
   })
 
   // Кнопка «Обновить»: повторный Ingest, отвечаем числом добавленных и
-  // отброшенных (недоступный полный текст) новостей.
+  // отброшенных (недоступный полный текст) новостей. Ответ прогоняется через
+  // общую схему наравне с остальными тремя роутами — skipped доходит до экрана.
   app.post('/api/ingest', async (c) => {
     const result = await ingest(db)
-    return c.json(result)
+    return c.json(ingestResultSchema.parse(result))
   })
 
   return app

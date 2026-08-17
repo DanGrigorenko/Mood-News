@@ -244,14 +244,6 @@ a:hover {
   gap: calc(var(--step) * 2);
 }
 
-/* Ремарка рядом с меткой: она предупреждает, что заголовок на плашке звучит в
-   выбранном регистре, а не дословно как у источника. */
-.lead-term {
-  font-style: italic;
-  font-size: 1rem;
-  color: var(--blue-pale);
-}
-
 .lead-body {
   display: block;
   animation: settle 0.5s var(--settle) both;
@@ -286,14 +278,6 @@ a:hover {
   text-wrap: balance;
   margin: calc(var(--step) * 2.5) 0 0;
   max-width: 22ch;
-}
-
-.lead p {
-  font-size: 1.1875rem;
-  line-height: 1.5;
-  margin: calc(var(--step) * 2) 0 0;
-  max-width: 54ch;
-  color: var(--blue-pale);
 }
 
 /* ── Остальные новости: строки стана, без карточек ────────────────────────── */
@@ -337,15 +321,7 @@ a:hover {
   text-wrap: balance;
 }
 
-.entry p {
-  margin: calc(var(--step) * 1) 0 0;
-  color: var(--ink-soft);
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  max-width: 62ch;
-}
-
-/* Одна измеримая шкала ранга: два размера, ниже — без анонса. */
+/* Выпуск — оглавление из одних заголовков, поэтому вся шкала ранга — кегль. */
 .entry.rank-major h2 {
   font-size: clamp(1.35rem, 2.1vw, 1.75rem);
 }

@@ -1,4 +1,4 @@
-import type { Rewrite } from '../src/rewrite.ts'
+import type { Rewrite } from '../../shared/api.mts'
 
 // Планка продакшн-готовности промпта (issue #12). Детерминированные проверки —
 // только абсолют: 50/50 по Missing Anchor и 50/50 по unchanged. От
@@ -41,7 +41,10 @@ export function summarize(rewrites: Rewrite[]): EvalSummary {
 // Человекочитаемая сводка для вывода раннера.
 export function formatSummary(s: EvalSummary): string {
   return [
-    `Всего Rewrite: ${s.total}`,
+    `Всего Rewrite: ${s.total}` +
+      // Неполный прогон нельзя молча сравнивать с полным: планка от него не
+      // берётся в любом случае, но и цифры в нём считаются от другого знаменателя.
+      (s.total < EVAL_CORPUS_SIZE ? ` из ${EVAL_CORPUS_SIZE} — прогон неполный` : ''),
     `Fact Check (Anchor целы): ${s.anchorsKept}/${s.total}  [планка ${s.total}/${s.total}]`,
     `Отличаются от Snippet: ${s.changed}/${s.total}  [планка ${s.total}/${s.total}]`,
     `Meaning Check пройден: ${s.meaningPassed}/${s.total}  [планка ${s.total - MEANING_CHECK_ALLOWANCE}/${s.total}]`,

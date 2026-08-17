@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import {
   extractAnchors,
   factCheck,
-  anchorSchema,
   factCheckSchema,
 } from '../src/anchor.ts'
+import { anchorSchema } from '../../shared/api.mts'
 
 // --- Извлечение Anchor из Snippet (механически, до всякой модели) ---
 
@@ -116,6 +116,54 @@ test('Fact Check ловит подменённое число', () => {
     result.missing.map((a) => a.text),
     ['12'],
   )
+})
+
+test('число прописью засчитывается: «трое погибших» — это Anchor «3»', () => {
+  const anchors = extractAnchors('При пожаре погибли 3 человека, ещё 7 в больнице.')
+  const result = factCheck('Трое погибли в огне, семеро увезены в больницу.', anchors)
+  assert.equal(result.passed, true)
+})
+
+test('число прописью в падеже тоже засчитывается', () => {
+  const anchors = extractAnchors('Погибли 3 человека.')
+  assert.equal(factCheck('Пожар унёс жизни трёх человек.', anchors).passed, true)
+})
+
+test('слово, начинающееся с числительного, за число не сходит', () => {
+  const anchors = extractAnchors('Пришли 2 человека и 100 гостей.')
+  const result = factCheck('Двадцать лет спустя стоимость выросла.', anchors)
+  assert.deepEqual(
+    result.missing.map((a) => a.text),
+    ['2', '100'],
+  )
+})
+
+test('заглавное прилагательное перед строчным словом за имя не считается', () => {
+  const anchors = extractAnchors('Об этом сообщил глава Центрального банка.')
+  assert.deepEqual(
+    anchors.map((a) => a.text),
+    [],
+  )
+})
+
+test('заглавное слово перед заглавным — часть названия, Anchor остаётся', () => {
+  const anchors = extractAnchors('Он работал в Дойче Банк много лет.')
+  assert.deepEqual(
+    anchors.map((a) => a.text),
+    ['Дойче', 'Банк'],
+  )
+})
+
+test('цитата в начале предложения — заглавная первая буква не потеря', () => {
+  const anchors = extractAnchors('Он сказал: «инфляция выше цели, ставку удержим».')
+  const result = factCheck('«Инфляция выше цели, ставку удержим», — заявил глава ЦБ.', anchors)
+  assert.equal(result.passed, true)
+})
+
+test('изменённые слова внутри цитаты — по-прежнему потеря', () => {
+  const anchors = extractAnchors('Он сказал: «инфляция выше цели, ставку удержим».')
+  const result = factCheck('«Инфляция ниже цели, ставку снизим», — заявил глава ЦБ.', anchors)
+  assert.equal(result.passed, false)
 })
 
 test('имя засчитывается по первым 5 символам, переживая падеж', () => {

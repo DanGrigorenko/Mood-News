@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { MOOD_LABELS, MOOD_IDS } from '../src/mood.ts'
-import { generateRewrite, type Rewrite } from '../src/rewrite.ts'
-import { callModelOverHttp, callMeaningCheckOverHttp, hasApiKey } from '../src/llm.ts'
-import type { Article } from '../src/rss.ts'
+import { MOOD_LABELS } from '../src/mood.ts'
+import { generateRewrite } from '../src/rewrite.ts'
+import { unchangedSimilarity } from '../src/similarity.ts'
+import { makeModelCall, makeMeaningCheckCall, httpTransport, hasApiKey, type Transport } from '../src/llm.ts'
+import { MOOD_IDS, sourceSchema, type Article, type Rewrite } from '../../shared/api.mts'
 import { summarize, formatSummary } from './aggregate.ts'
 
 // Раннер eval (issue #12): гоняет замороженный корпус из 10 Snippet во всех пяти
@@ -19,7 +20,7 @@ const corpusEntrySchema = z.object({
   id: z.string(),
   category: z.string(),
   link: z.string(),
-  source: z.string(),
+  source: sourceSchema,
   title: z.string(),
   announce: z.string(),
   publishedAt: z.string(),
@@ -42,6 +43,44 @@ function articleOf(entry: CorpusEntry): Article {
   }
 }
 
+// Провайдер режет частые вызовы 429, а один прогон — это 50 Rewrite по 2+
+// вызова: без пауз и ретраев раннер падает на середине и весь потраченный прогон
+// уходит в никуда. Повтор по 429 и таймауту раннер больше не крутит сам —
+// это делает Transport, тот же, что и в проде, но с длинными паузами: собственный
+// цикл повтора и разбор текста ошибки регуляркой удалены, паузы больше не
+// складываются (issue #29). Пауза между соседними Rewrite (вежливость к
+// провайдеру, а не повтор) остаётся здесь — это решение раннера, а не политика
+// транспорта.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const RETRY_PAUSE_MS = 20_000
+const BETWEEN_REWRITES_MS = 3_000
+// Прежние MAX_RETRIES=5 попыток повтора — теперь длинные паузы транспорта. Пяти
+// и двенадцати пауз оказалось мало: замер на живом провайдере — от половины до
+// трёх четвертей запросов уходят в 429, а прогон это полторы сотни вызовов, так
+// что дюжина неудач подряд случается за прогон почти наверняка (оба раза прогон
+// умирал на 24-м Rewrite из 50). Тридцать пауз по 20 секунд — десять минут
+// ожидания в худшем случае на вызов, обычно хватает одной-двух.
+const EVAL_RETRY_DELAYS_MS = Array<number>(30).fill(RETRY_PAUSE_MS)
+
+// Транспорт eval: сеть и таймер берём прод-adapter, паузы повтора — длинные.
+// Таймаут и обрыв сети приходят броском request; превращаем их в retryable 503,
+// чтобы повтор по 429 И по таймауту шёл одним циклом транспорта, а не отдельной
+// регуляркой по тексту ошибки в раннере (issue #29).
+const evalTransport: Transport = {
+  request: async (url, init) => {
+    try {
+      return await httpTransport.request(url, init)
+    } catch {
+      return new Response('', { status: 503 })
+    }
+  },
+  sleep: httpTransport.sleep,
+  retryDelays: EVAL_RETRY_DELAYS_MS,
+}
+
+const callModel = makeModelCall(evalTransport)
+const callMeaningCheck = makeMeaningCheckCall(evalTransport)
+
 function printRewrite(entry: CorpusEntry, rewrite: Rewrite): void {
   const kept = rewrite.anchorCount - rewrite.missing.length
   console.log('─'.repeat(72))
@@ -53,11 +92,29 @@ function printRewrite(entry: CorpusEntry, rewrite: Rewrite): void {
       (rewrite.missing.length > 0
         ? ` · потеряно: ${rewrite.missing.map((a) => a.text).join(', ')}`
         : '') +
+      // Голого unchanged мало: он говорит лишь «за порогом или нет». Само число
+      // показывает, насколько Rewrite ушёл от Snippet, — по нему и калибруется
+      // UNCHANGED_SIMILARITY_THRESHOLD.
+      ` · sim: ${unchangedSimilarity(`${rewrite.title}\n${rewrite.body}`, `${entry.title}\n${entry.announce}`).toFixed(2)}` +
       ` · unchanged: ${rewrite.unchanged}` +
       ` · Meaning Check: ${rewrite.meaningCheck}` +
       (rewrite.distortion ? ` (${rewrite.distortion})` : '') +
       ` · попыток: ${rewrite.attempts}`,
   )
+}
+
+// Аргументы раннера: `--only id1,id2` — какие Snippet корпуса гонять, `--repeat N`
+// — сколько раз каждый. Без них прогон прежний: весь корпус по разу.
+function parseArgs(argv: string[]): { only: string[]; repeat: number } {
+  const value = (flag: string): string | undefined => {
+    const at = argv.indexOf(flag)
+    return at === -1 ? undefined : argv[at + 1]
+  }
+  const repeat = Number(value('--repeat') ?? 1)
+  if (!Number.isInteger(repeat) || repeat < 1) {
+    throw new Error('--repeat ждёт целое число не меньше 1')
+  }
+  return { only: value('--only')?.split(',').filter(Boolean) ?? [], repeat }
 }
 
 async function main(): Promise<void> {
@@ -69,21 +126,44 @@ async function main(): Promise<void> {
     return
   }
 
-  const corpus = loadCorpus()
-  console.log(`Eval: ${corpus.length} Snippet × ${MOOD_IDS.length} Mood — живые вызовы модели.\n`)
+  // Калибровать промпт полным прогоном нельзя: полтора часа, деньги и один
+  // недетерминированный замер, где разброс между прогонами того же порядка, что
+  // и правка. Отбор Snippet и повторы дают дешёвый цикл: `npm run eval -- --only
+  // long,nonumbers --repeat 3` гоняет два проблемных текста трижды и показывает
+  // разброс. Планка от такого прогона не берётся — summarize требует полсотни.
+  const { only, repeat } = parseArgs(process.argv.slice(2))
+  const corpus = loadCorpus().filter((e) => only.length === 0 || only.includes(e.id))
+  if (corpus.length === 0) {
+    console.error(`Ни один Snippet не совпал с --only ${only.join(',')}.`)
+    process.exitCode = 1
+    return
+  }
+  console.log(
+    `Eval: ${corpus.length} Snippet × ${MOOD_IDS.length} Mood` +
+      (repeat > 1 ? ` × ${repeat} повтора` : '') +
+      ' — живые вызовы модели.\n',
+  )
 
   const rewrites: Rewrite[] = []
-  for (const entry of corpus) {
+  for (const entry of corpus.flatMap((e) => Array<CorpusEntry>(repeat).fill(e))) {
     const article = articleOf(entry)
     for (const mood of MOOD_IDS) {
-      const rewrite = await generateRewrite(
-        article,
-        mood,
-        callModelOverHttp,
-        callMeaningCheckOverHttp,
-      )
-      rewrites.push(rewrite)
-      printRewrite(entry, rewrite)
+      // Сдохший вызов больше не уносит с собой весь прогон: полсотни Rewrite —
+      // это час времени и потраченные деньги, и терять их из-за одного 429 после
+      // всех повторов незачем. Несгенерированный Rewrite просто не попадает в
+      // сводку, а планка от неполного прогона не берётся: summarize требует
+      // total === EVAL_CORPUS_SIZE.
+      try {
+        const rewrite = await generateRewrite(article, mood, callModel, callMeaningCheck)
+        rewrites.push(rewrite)
+        printRewrite(entry, rewrite)
+      } catch (err) {
+        console.log('─'.repeat(72))
+        console.log(
+          `[${entry.id} · ${entry.category}] — ${MOOD_LABELS[mood]}: не сгенерирован — ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      await sleep(BETWEEN_REWRITES_MS)
     }
   }
 

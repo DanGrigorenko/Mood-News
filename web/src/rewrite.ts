@@ -1,43 +1,8 @@
-import { z } from 'zod'
-import { articleSchema } from './articles.ts'
-
-// Anchor — факт, обязанный дословно пережить переписывание (см. server/anchor.ts).
-// На фронте kind нужен только для подписи потерянного факта.
-const anchorSchema = z.object({
-  kind: z.enum(['number', 'quote', 'name']),
-  text: z.string(),
-})
-export type Anchor = z.infer<typeof anchorSchema>
-
-// Форма Rewrite, как её отдаёт сервер. Валидируем zod-ом: пришедшее по сети —
-// внешние данные (CODING_STANDARDS).
-export const rewriteSchema = z.object({
-  mood: z.string(),
-  title: z.string(),
-  body: z.string(),
-  anchors: z.array(anchorSchema),
-  anchorCount: z.number(),
-  missing: z.array(anchorSchema),
-  attempts: z.number(),
-  stub: z.boolean(),
-  // После всех попыток Rewrite дословно совпал со Snippet. Поле живёт в ответе
-  // API для eval и отладки, но с экрана ушло (issue #12, docs/adr/0008).
-  unchanged: z.boolean(),
-  // Meaning Check — смысловая сверка Rewrite с источником (issue #10, #12):
-  // passed — исход сохранён; failed — найдено искажение (distortion); skipped —
-  // сверка не отработала. Как и unchanged, остаётся в API, но не показывается
-  // читателю: её результат решает судьбу Rewrite, а не его вёрстку (docs/adr/0008).
-  meaningCheck: z.enum(['passed', 'failed', 'skipped']),
-  // Название найденного искажения (Distortion) — непустое только при
-  // meaningCheck === 'failed'.
-  distortion: z.string(),
-})
-export type Rewrite = z.infer<typeof rewriteSchema>
-
-export const rewriteResponseSchema = z.object({
-  article: articleSchema,
-  rewrite: rewriteSchema,
-})
+// Форма Rewrite (и конверт ответа /api/articles/:id) описана один раз в общем
+// контракте (shared/api.mts) — тем же, по которому сервер её строит. `mood`
+// имеет одну форму на обе стороны: серверный enum, а не свободная строка.
+import { rewriteResponseSchema, type Mood, type Rewrite } from '../../shared/api.mts'
+import { apiFetch } from './api.ts'
 
 // Бейдж Fact Check: сколько Anchor уцелело из общего числа. Потерянные факты
 // перечисляются отдельно (rewrite.missing) — здесь только сводка.
@@ -46,19 +11,13 @@ export function factCheckSummary(rewrite: Rewrite): string {
   return `факты сохранены: ${kept}/${rewrite.anchorCount}`
 }
 
-// Сервер кладёт причину ошибки в { error } (400/404/502). Достаём её, чтобы
-// показать читателю, а не только в консоли (acceptance criteria issue #5).
-export function errorText(status: number, body: unknown): string {
-  const parsed = z.object({ error: z.string() }).safeParse(body)
-  return parsed.success ? parsed.data.error : `сервер ответил ${status}`
-}
-
-export async function fetchRewrite(link: string, mood: string): Promise<Rewrite> {
-  // :id — ссылка Article (первичный ключ), поэтому encodeURIComponent.
-  const res = await fetch(
+export async function fetchRewrite(link: string, mood: Mood): Promise<Rewrite> {
+  // :id — ссылка Article (первичный ключ), поэтому encodeURIComponent. Транспорт
+  // (статус, разбор причины ошибки) — у общего apiFetch; здесь только адрес и
+  // распаковка конверта.
+  const { rewrite } = await apiFetch(
     `/api/articles/${encodeURIComponent(link)}?mood=${encodeURIComponent(mood)}`,
+    rewriteResponseSchema,
   )
-  const body: unknown = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(errorText(res.status, body))
-  return rewriteResponseSchema.parse(body).rewrite
+  return rewrite
 }

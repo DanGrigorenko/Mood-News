@@ -44,6 +44,50 @@ test('первая попытка не содержит перечня Anchor н
   assert.doesNotMatch(all, /склонять/) // раскол «дословно/склоняемо» — только ретрай
 })
 
+test('промпт требует сохранять азбуку имён собственных, не запрещая склонение', () => {
+  // Замер на живой модели: «Мидзухо» → «Midzuhu», «Дойче Банк» → «Deyche Bank».
+  // Fact Check считал имена потерянными — и был прав. Правило «не меняй имена»
+  // модель понимала как «не подменяй лицо», а не как «не транслитерируй».
+  const messages = buildMessages({ mood: 'neutral', title, announce })
+  const system = messages.find((m) => m.role === 'system')!.content
+  assert.match(system, /азбук|кириллиц|латиниц|транслитер/i)
+  // Требования к форме имени в первой попытке быть не должно: падеж безразличен
+  // и сверке (anchor.ts, первые пять символов), и ретраю (docs/adr/0009).
+  assert.doesNotMatch(system, /в том же написании|не склоняй/i)
+})
+
+test('разрешение опускать подробности не распространяется на цифры', () => {
+  // Замер: dramatic пересобирал длинный текст и терял «60%» и «40%» — сокращал
+  // за счёт цифр. Оговорка должна стоять в том же правиле, что и разрешение
+  // сокращать, иначе два пункта промпта спорят друг с другом.
+  const messages = buildMessages({ mood: 'neutral', title, announce })
+  const system = messages.find((m) => m.role === 'system')!.content
+  const shortening = system.split('\n').find((l) => /опустить можно/.test(l))!
+  assert.match(shortening, /цифр|числ/i)
+})
+
+test('промпт требует переписывать конец текста наравне с началом', () => {
+  // Замер: на длинном источнике модель переписывала начало и дальше шла за ним
+  // слово в слово — sim 0.66–0.86 и unchanged даже после трёх попыток.
+  const messages = buildMessages({ mood: 'neutral', title, announce })
+  const system = messages.find((m) => m.role === 'system')!.content
+  assert.match(system, /конец текста[^\n]*начал/i)
+})
+
+test('ретрай по unchanged тоже говорит про хвост, а не только первая попытка', () => {
+  // Пять провалов unchanged на замере пережили все три попытки — значит, слабым
+  // местом был ретрай, а не первая попытка.
+  const messages = buildMessages({
+    mood: 'neutral',
+    title,
+    announce,
+    feedback: feedback({ unchanged: true, surviving: ['мэр москвы сообщил о росте'] }),
+  })
+  const user = messages.find((m) => m.role === 'user')!.content
+  assert.match(user, /мэр москвы сообщил о росте/) // уцелевший кусок назван
+  assert.match(user, /конец текста/i) // и сказано, где его обычно теряют
+})
+
 test('промпт запрещает приписывать факты списком в конце (issue #13)', () => {
   const messages = buildMessages({ mood: 'joyful', title, announce })
   const system = messages.find((m) => m.role === 'system')!.content

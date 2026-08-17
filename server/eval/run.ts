@@ -54,8 +54,12 @@ function articleOf(entry: CorpusEntry): Article {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const RETRY_PAUSE_MS = 20_000
 const BETWEEN_REWRITES_MS = 3_000
-// Прежние MAX_RETRIES=5 попыток повтора — теперь пять длинных пауз транспорта.
-const EVAL_RETRY_DELAYS_MS = Array<number>(5).fill(RETRY_PAUSE_MS)
+// Прежние MAX_RETRIES=5 попыток повтора — теперь длинные паузы транспорта. Пять
+// пауз мало: провайдер отдаёт 429 примерно на половину запросов, а прогон — это
+// полторы сотни вызовов, так что пять подряд неудач случаются почти наверняка и
+// роняют прогон на середине. Двенадцать пауз по 20 секунд — четыре минуты
+// ожидания в худшем случае на вызов, обычно хватает одной-двух.
+const EVAL_RETRY_DELAYS_MS = Array<number>(12).fill(RETRY_PAUSE_MS)
 
 // Транспорт eval: сеть и таймер берём прод-adapter, паузы повтора — длинные.
 // Таймаут и обрыв сети приходят броском request; превращаем их в retryable 503,

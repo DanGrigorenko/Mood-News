@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { z } from 'zod'
 import { apiFetch } from '../src/api.ts'
+import { fetchRewrite } from '../src/rewrite.ts'
 
 // Подменяем глобальный fetch на время одного вызова.
 async function withFetch<T>(
@@ -28,7 +28,30 @@ test('apiFetch разбирает тело схемой при 200', async () =>
   assert.equal(parsed.ok, true)
 })
 
-test('apiFetch бросает по статусу, не трогая тело, при не-2xx', async () => {
+test('apiFetch доносит причину ошибки из тела ответа при не-2xx', async () => {
+  await assert.rejects(
+    withFetch(
+      async () =>
+        new Response(JSON.stringify({ error: 'неизвестный Mood: foo' }), {
+          status: 400,
+        }),
+      () => apiFetch('/api/x', schema),
+    ),
+    /неизвестный Mood: foo/,
+  )
+})
+
+test('apiFetch откатывается на статус, если сервер ответил без тела', async () => {
+  await assert.rejects(
+    withFetch(
+      async () => new Response(null, { status: 502 }),
+      () => apiFetch('/api/x', schema),
+    ),
+    /\/api\/x ответил 502/,
+  )
+})
+
+test('apiFetch откатывается на статус при теле неожиданной формы', async () => {
   await assert.rejects(
     withFetch(
       async () => new Response('nope', { status: 500 }),
@@ -60,14 +83,48 @@ test('apiFetch передаёт init (метод) в fetch', async () => {
   assert.equal(seen?.method, 'POST')
 })
 
-// Deletion test: прежние тела «сходить → проверить статус → распарсить»
-// (fetchArticles, runIngest) больше не ходят в сеть сами — они проходят через
-// apiFetch. Список Mood теперь тоже идёт через apiFetch прямо из App (module
-// moods.ts удалён, issue #27). Если тело вернётся в articles.ts, тест упадёт.
-test('deletion: articles.ts не вызывает fetch и не проверяет res.ok сам', () => {
-  for (const file of ['articles.ts']) {
-    const src = readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8')
-    assert.doesNotMatch(src, /fetch\(/, `${file} всё ещё вызывает fetch напрямую`)
-    assert.doesNotMatch(src, /res\.ok/, `${file} всё ещё проверяет res.ok сам`)
+// fetchRewrite — ещё одна привязка над apiFetch, а не свой транспорт: у него нет
+// собственного разбора статуса и причины. Спрашиваем это у interface, а не грепом
+// исходника: причина ошибки от сервера доходит и через путь Rewrite.
+test('fetchRewrite доносит причину ошибки сервера через apiFetch', async () => {
+  await assert.rejects(
+    withFetch(
+      async () =>
+        new Response(JSON.stringify({ error: 'Article не найдена' }), {
+          status: 404,
+        }),
+      () => fetchRewrite('https://example.com/a', 'joyful'),
+    ),
+    /Article не найдена/,
+  )
+})
+
+// А на 2xx он распаковывает конверт контракта и отдаёт сам Rewrite.
+test('fetchRewrite распаковывает rewrite из конверта ответа', async () => {
+  const article = {
+    link: 'https://example.com/a',
+    source: 'S',
+    title: 'T',
+    announce: 'A',
+    publishedAt: '',
   }
+  const rewrite = {
+    mood: 'joyful',
+    title: 'Заголовок',
+    body: 'Тело',
+    anchors: [],
+    anchorCount: 3,
+    missing: [],
+    attempts: 1,
+    stub: false,
+    unchanged: false,
+    meaningCheck: 'passed',
+    distortion: '',
+  }
+  const got = await withFetch(
+    async () => new Response(JSON.stringify({ article, rewrite }), { status: 200 }),
+    () => fetchRewrite('https://example.com/a', 'joyful'),
+  )
+  assert.equal(got.mood, 'joyful')
+  assert.equal(got.anchorCount, 3)
 })

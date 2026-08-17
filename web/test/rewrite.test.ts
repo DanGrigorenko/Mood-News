@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { factCheckSummary, errorText } from '../src/rewrite.ts'
+import { factCheckSummary } from '../src/rewrite.ts'
 import { rewriteResponseSchema, type Rewrite } from '../../shared/api.mts'
 
 const base: Rewrite = {
@@ -74,14 +74,6 @@ test('factCheckSummary вычитает потерянные Anchor из сох�
     ],
   }
   assert.equal(factCheckSummary(lost), 'факты сохранены: 10/12')
-})
-
-test('errorText достаёт причину из тела ответа сервера', () => {
-  assert.equal(errorText(400, { error: 'неизвестный Mood: foo' }), 'неизвестный Mood: foo')
-})
-
-test('errorText откатывается на статус, если тело без error', () => {
-  assert.equal(errorText(502, null), 'сервер ответил 502')
 })
 
 test('rewriteResponseSchema отвергает ответ без rewrite', () => {

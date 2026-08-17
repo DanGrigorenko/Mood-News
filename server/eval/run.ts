@@ -103,6 +103,20 @@ function printRewrite(entry: CorpusEntry, rewrite: Rewrite): void {
   )
 }
 
+// Аргументы раннера: `--only id1,id2` — какие Snippet корпуса гонять, `--repeat N`
+// — сколько раз каждый. Без них прогон прежний: весь корпус по разу.
+function parseArgs(argv: string[]): { only: string[]; repeat: number } {
+  const value = (flag: string): string | undefined => {
+    const at = argv.indexOf(flag)
+    return at === -1 ? undefined : argv[at + 1]
+  }
+  const repeat = Number(value('--repeat') ?? 1)
+  if (!Number.isInteger(repeat) || repeat < 1) {
+    throw new Error('--repeat ждёт целое число не меньше 1')
+  }
+  return { only: value('--only')?.split(',').filter(Boolean) ?? [], repeat }
+}
+
 async function main(): Promise<void> {
   if (!hasApiKey()) {
     console.error(
@@ -112,11 +126,26 @@ async function main(): Promise<void> {
     return
   }
 
-  const corpus = loadCorpus()
-  console.log(`Eval: ${corpus.length} Snippet × ${MOOD_IDS.length} Mood — живые вызовы модели.\n`)
+  // Калибровать промпт полным прогоном нельзя: полтора часа, деньги и один
+  // недетерминированный замер, где разброс между прогонами того же порядка, что
+  // и правка. Отбор Snippet и повторы дают дешёвый цикл: `npm run eval -- --only
+  // long,nonumbers --repeat 3` гоняет два проблемных текста трижды и показывает
+  // разброс. Планка от такого прогона не берётся — summarize требует полсотни.
+  const { only, repeat } = parseArgs(process.argv.slice(2))
+  const corpus = loadCorpus().filter((e) => only.length === 0 || only.includes(e.id))
+  if (corpus.length === 0) {
+    console.error(`Ни один Snippet не совпал с --only ${only.join(',')}.`)
+    process.exitCode = 1
+    return
+  }
+  console.log(
+    `Eval: ${corpus.length} Snippet × ${MOOD_IDS.length} Mood` +
+      (repeat > 1 ? ` × ${repeat} повтора` : '') +
+      ' — живые вызовы модели.\n',
+  )
 
   const rewrites: Rewrite[] = []
-  for (const entry of corpus) {
+  for (const entry of corpus.flatMap((e) => Array<CorpusEntry>(repeat).fill(e))) {
     const article = articleOf(entry)
     for (const mood of MOOD_IDS) {
       // Сдохший вызов больше не уносит с собой весь прогон: полсотни Rewrite —

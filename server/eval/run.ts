@@ -54,12 +54,13 @@ function articleOf(entry: CorpusEntry): Article {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const RETRY_PAUSE_MS = 20_000
 const BETWEEN_REWRITES_MS = 3_000
-// Прежние MAX_RETRIES=5 попыток повтора — теперь длинные паузы транспорта. Пять
-// пауз мало: провайдер отдаёт 429 примерно на половину запросов, а прогон — это
-// полторы сотни вызовов, так что пять подряд неудач случаются почти наверняка и
-// роняют прогон на середине. Двенадцать пауз по 20 секунд — четыре минуты
+// Прежние MAX_RETRIES=5 попыток повтора — теперь длинные паузы транспорта. Пяти
+// и двенадцати пауз оказалось мало: замер на живом провайдере — от половины до
+// трёх четвертей запросов уходят в 429, а прогон это полторы сотни вызовов, так
+// что дюжина неудач подряд случается за прогон почти наверняка (оба раза прогон
+// умирал на 24-м Rewrite из 50). Тридцать пауз по 20 секунд — десять минут
 // ожидания в худшем случае на вызов, обычно хватает одной-двух.
-const EVAL_RETRY_DELAYS_MS = Array<number>(12).fill(RETRY_PAUSE_MS)
+const EVAL_RETRY_DELAYS_MS = Array<number>(30).fill(RETRY_PAUSE_MS)
 
 // Транспорт eval: сеть и таймер берём прод-adapter, паузы повтора — длинные.
 // Таймаут и обрыв сети приходят броском request; превращаем их в retryable 503,
@@ -118,9 +119,21 @@ async function main(): Promise<void> {
   for (const entry of corpus) {
     const article = articleOf(entry)
     for (const mood of MOOD_IDS) {
-      const rewrite = await generateRewrite(article, mood, callModel, callMeaningCheck)
-      rewrites.push(rewrite)
-      printRewrite(entry, rewrite)
+      // Сдохший вызов больше не уносит с собой весь прогон: полсотни Rewrite —
+      // это час времени и потраченные деньги, и терять их из-за одного 429 после
+      // всех повторов незачем. Несгенерированный Rewrite просто не попадает в
+      // сводку, а планка от неполного прогона не берётся: summarize требует
+      // total === EVAL_CORPUS_SIZE.
+      try {
+        const rewrite = await generateRewrite(article, mood, callModel, callMeaningCheck)
+        rewrites.push(rewrite)
+        printRewrite(entry, rewrite)
+      } catch (err) {
+        console.log('─'.repeat(72))
+        console.log(
+          `[${entry.id} · ${entry.category}] — ${MOOD_LABELS[mood]}: не сгенерирован — ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
       await sleep(BETWEEN_REWRITES_MS)
     }
   }

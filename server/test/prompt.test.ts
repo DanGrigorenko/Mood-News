@@ -18,7 +18,14 @@ const announce = 'Мэр Москвы сообщил о росте на 15% в 2
 
 // Обратная связь ретрая: по умолчанию пустая, тесты заполняют нужное поле.
 function feedback(over: Partial<RewriteFeedback> = {}): RewriteFeedback {
-  return { missing: [], unchanged: false, surviving: [], distortion: '', ...over }
+  return {
+    missing: [],
+    unchanged: false,
+    surviving: [],
+    distortion: '',
+    previous: { title: 'Прошлый заголовок', body: 'Прошлый текст попытки.' },
+    ...over,
+  }
 }
 
 // --- Первая попытка: Brief без feedback ---
@@ -134,6 +141,18 @@ test('ретрай называет потерянное и просит вер�
   assert.match(user, /потеряны/) // потерянное названо
   assert.match(user, /сохрани[^\n]*регистр/i) // держим уже полученный регистр
   assert.match(user, /не переписывай/i) // а не слепая перегенерация с нуля
+})
+
+test('ретрай несёт текст прошлой попытки — модель stateless, ей есть что править', () => {
+  const messages = buildMessages({
+    mood: 'joyful',
+    title,
+    announce,
+    feedback: feedback({ missing: [{ kind: 'number', text: '15%' }] }),
+  })
+  const user = messages.find((m) => m.role === 'user')!.content
+  assert.match(user, /Прошлый заголовок/)
+  assert.match(user, /Прошлый текст попытки/)
 })
 
 test('ретрай при совпадении сообщает модели, что она ничего не изменила', () => {

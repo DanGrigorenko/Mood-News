@@ -94,6 +94,7 @@ export function feedbackAccumulator(article: Article): FeedbackAccumulator {
             )
           : [],
         distortion: anchorsPassed(verdict) ? verdict.distortion : carriedDistortion,
+        previous: { title: out.title, body: out.body },
       }
     },
   }

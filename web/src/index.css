@@ -413,6 +413,7 @@ a:hover {
 .stave {
   display: grid;
   grid-template-columns: 2.5rem 1fr;
+  gap: calc(var(--step) * 1.5);
 }
 
 .stave-label {
@@ -658,6 +659,7 @@ a:hover {
 
   .stave {
     grid-template-columns: 1.75rem 1fr;
+    gap: calc(var(--step) * 1);
   }
 }
 

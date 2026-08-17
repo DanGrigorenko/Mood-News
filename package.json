@@ -12,6 +12,8 @@
     "dev": "concurrently -k -n server,web -c blue,green \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
     "typecheck": "npm --prefix server run typecheck && npm --prefix web run typecheck",
     "test": "npm --prefix server test && npm --prefix web test",
-    "sandcastle": "npx tsx .sandcastle/main.mts"
+    "sandcastle": "npx tsx .sandcastle/main.mts",
+    "build": "npm --prefix web run build",
+    "start": "npm --prefix server start"
   }
 }

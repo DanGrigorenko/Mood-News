@@ -1,0 +1,30 @@
+# Render deploy config — a single web service. The server (Hono) answers
+# /api/* and also serves the built web/dist as static files, so one process
+# is the whole site (server/src/app.ts). Connect the repo in the Render
+# dashboard, set LLM_API_KEY below, and Render builds + starts from this file.
+#
+# Ephemeral disk is fine: mood-news.db re-ingests from RSS on an empty DB at
+# startup (server/src/index.ts), so a fresh disk on redeploy just re-ingests.
+services:
+  - type: web
+    name: mood-news
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Render sets PORT; the server reads it (defaults to 8787 locally).
+      - key: PORT
+        value: "10000"
+      # Without it the server runs on the stub rewriter (see .env.example) —
+      # the live demo works, articles just aren't LLM-rewritten.
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: LLM_API_KEY
+        sync: false

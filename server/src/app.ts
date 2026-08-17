@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { serveStatic } from '@hono/node-server/serve-static'
 import type { DatabaseSync } from 'node:sqlite'
 import { healthPayload } from './health.ts'
 import { listArticles, getArticle } from './db.ts'
@@ -66,6 +67,12 @@ export function createApp(db: DatabaseSync): Hono {
     const result = await ingest(db)
     return c.json(ingestResultSchema.parse(result))
   })
+
+  // Прод-раздача собранного фронта тем же процессом — один Render-сервис вместо
+  // двух (нет отдельного статик-хостинга и rewrite-правил). Нет /api, нет
+  // роутера на фронте — отдать файл или, для остальных путей, index.html.
+  app.use('*', serveStatic({ root: '../web/dist' }))
+  app.use('*', serveStatic({ path: '../web/dist/index.html' }))
 
   return app
 }

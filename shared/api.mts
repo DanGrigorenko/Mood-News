@@ -26,6 +26,18 @@ export type MoodOption = z.infer<typeof moodOptionSchema>
 export const moodsResponseSchema = z.object({ moods: z.array(moodOptionSchema) })
 export type MoodsResponse = z.infer<typeof moodsResponseSchema>
 
+// --- Source ---
+
+// Source — внешняя лента, из которой пришла Article. Набор конечен и задан
+// проектом (как MOOD_IDS): читатель не заводит свой. Id живёт здесь, в общем
+// контракте, а не в server/src/source.ts, потому что едет на провод в каждой
+// Article; url ленты и правило извлечения остаются на сервере, рядом друг с
+// другом (issue #30). Опечатка в ключе — ошибка компиляции, а не погасшая лента.
+export const SOURCE_IDS = ['Коммерсантъ', 'РИА Новости', 'Интерфакс'] as const
+
+export const sourceSchema = z.enum(SOURCE_IDS)
+export type Source = z.infer<typeof sourceSchema>
+
 // --- Anchor ---
 
 // Виды Anchor (см. server/anchor.ts): число/дата/сумма — «number», содержимое
@@ -46,7 +58,7 @@ export type Anchor = z.infer<typeof anchorSchema>
 // (полный текст статьи после docs/adr/0006).
 export const articleSchema = z.object({
   link: z.string().url(),
-  source: z.string(),
+  source: sourceSchema,
   title: z.string().min(1),
   announce: z.string(),
   publishedAt: z.string(),

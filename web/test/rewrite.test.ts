@@ -21,7 +21,7 @@ test('rewriteResponseSchema принимает пометку unchanged', () => 
   const parsed = rewriteResponseSchema.parse({
     article: {
       link: 'https://example.com/a',
-      source: 'S',
+      source: 'РИА Новости',
       title: 'T',
       announce: 'A',
       publishedAt: '',
@@ -35,7 +35,7 @@ test('rewriteResponseSchema принимает провал Meaning Check с dis
   const parsed = rewriteResponseSchema.parse({
     article: {
       link: 'https://example.com/a',
-      source: 'S',
+      source: 'РИА Новости',
       title: 'T',
       announce: 'A',
       publishedAt: '',
@@ -51,7 +51,7 @@ test('rewriteResponseSchema отвергает неизвестное состо
     rewriteResponseSchema.parse({
       article: {
         link: 'https://example.com/a',
-        source: 'S',
+        source: 'РИА Новости',
         title: 'T',
         announce: 'A',
         publishedAt: '',
@@ -81,7 +81,7 @@ test('rewriteResponseSchema отвергает ответ без rewrite', () =>
     rewriteResponseSchema.parse({
       article: {
         link: 'https://example.com/a',
-        source: 'S',
+        source: 'РИА Новости',
         title: 'T',
         announce: 'A',
         publishedAt: '',

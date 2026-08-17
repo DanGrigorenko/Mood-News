@@ -2,7 +2,7 @@ import { XMLParser } from 'fast-xml-parser'
 
 // Форма Article описана один раз в общем контракте shared/api.mts (ответ API) и
 // оттуда же валидирует ленту при разборе: сущность одна на проводе и в парсере.
-import { articleSchema, type Article } from '../../shared/api.mts'
+import { articleSchema, type Article, type Source } from '../../shared/api.mts'
 
 const parser = new XMLParser({ ignoreAttributes: true, trimValues: true })
 
@@ -28,7 +28,7 @@ function toIso(pubDate: unknown): string {
 
 // Чистая функция: XML ленты → список Article. Сеть и хранилище снаружи.
 // На битом XML или отсутствии item возвращает [], а не бросает.
-export function parseFeed(xml: string, source: string): Article[] {
+export function parseFeed(xml: string, source: Source): Article[] {
   let parsed: unknown
   try {
     parsed = parser.parse(xml)

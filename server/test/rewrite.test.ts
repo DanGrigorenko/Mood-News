@@ -15,7 +15,7 @@ import { rewriteSchema, type Article } from '../../shared/api.mts'
 
 const article: Article = {
   link: 'https://src.test/1',
-  source: 'Тест',
+  source: 'Коммерсантъ',
   title: 'Собянин выделил 1200 млрд рублей',
   announce: 'Мэр Москвы сообщил о росте на 15% в 2026 году.',
   publishedAt: '2026-08-16T09:00:00.000Z',

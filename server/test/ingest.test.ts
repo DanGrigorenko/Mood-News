@@ -1,6 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { openDb, listArticles, countArticles, getArticle, insertArticles } from '../src/db.ts'
+import { DatabaseSync } from 'node:sqlite'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Rewrite } from '../../shared/api.mts'
+import {
+  openDb,
+  listArticles,
+  countArticles,
+  getArticle,
+  insertArticles,
+  getRewrite,
+  insertRewrite,
+} from '../src/db.ts'
 import { ingest, stripAgencyHeader, MIN_SNIPPET_LENGTH, type Feed } from '../src/ingest.ts'
 
 // Лента отдаёт только Snippet (заголовок + анонс); полный текст Ingest забирает
@@ -244,14 +257,14 @@ test('уже сохранённая Article с пустым анонсом не 
   insertArticles(db, [
     {
       link: 'https://src.test/empty',
-      source: 'A',
+      source: 'Коммерсантъ',
       title: 'Только заголовок',
       announce: '',
       publishedAt: '2026-08-16T09:00:00.000Z',
     },
     {
       link: 'https://src.test/full',
-      source: 'A',
+      source: 'Коммерсантъ',
       title: 'С анонсом',
       announce: 'Есть текст',
       publishedAt: '2026-08-16T10:00:00.000Z',
@@ -261,4 +274,29 @@ test('уже сохранённая Article с пустым анонсом не 
   assert.equal(listArticles(db).length, 1)
   assert.equal(listArticles(db)[0].link, 'https://src.test/full')
   assert.equal(getArticle(db, 'https://src.test/empty'), undefined)
+})
+
+// Форма таблицы rewrites сменилась (issue #23), миграций в проекте нет. База,
+// созданная прежней формой, должна открыться и работать, а не ронять чтение
+// кэша на каждой новости.
+test('база прежней формы rewrites открывается и снова кэширует Rewrite', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'moodnews-')), 'old.db')
+  const old = new DatabaseSync(path)
+  old.exec(`CREATE TABLE rewrites (
+    link TEXT NOT NULL, mood TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+    PRIMARY KEY (link, mood))`)
+  old.prepare('INSERT INTO rewrites VALUES (?, ?, ?, ?)').run(
+    'https://k.test/1', 'joyful', 'старый заголовок', 'старое тело')
+  old.close()
+
+  const db = openDb(path)
+  assert.equal(getRewrite(db, 'https://k.test/1', 'joyful'), undefined)
+
+  const rewrite: Rewrite = {
+    mood: 'joyful', title: 'Новый', body: 'Текст', anchors: [], anchorCount: 0,
+    missing: [], attempts: 1, stub: false, unchanged: false,
+    meaningCheck: 'passed', distortion: '',
+  }
+  insertRewrite(db, 'https://k.test/1', 'joyful', rewrite)
+  assert.deepEqual(getRewrite(db, 'https://k.test/1', 'joyful'), rewrite)
 })

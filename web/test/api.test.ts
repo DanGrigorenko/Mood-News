@@ -103,7 +103,7 @@ test('fetchRewrite доносит причину ошибки сервера ч�
 test('fetchRewrite распаковывает rewrite из конверта ответа', async () => {
   const article = {
     link: 'https://example.com/a',
-    source: 'S',
+    source: 'РИА Новости',
     title: 'T',
     announce: 'A',
     publishedAt: '',

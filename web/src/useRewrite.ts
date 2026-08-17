@@ -1,5 +1,5 @@
 import { fetchRewrite } from './rewrite.ts'
-import type { Rewrite } from '../../shared/api.mts'
+import type { Mood, Rewrite } from '../../shared/api.mts'
 
 // Состояние Rewrite для пары «Article + Mood»: текущий результат, идёт ли
 // генерация, и ошибка, если модель недоступна. Ровно то, что показывает экран —
@@ -17,14 +17,14 @@ const IDLE: RewriteState = { rewrite: null, loading: false, error: null }
 // контракта, #24): он ходит на /api/articles/:id и разбирает ответ общей схемой.
 // В тестах подставляется подставная функция, чтобы гонку, ошибку и повтор
 // проверять без сети.
-export type RewriteFetch = (link: string, mood: string) => Promise<Rewrite>
+export type RewriteFetch = (link: string, mood: Mood) => Promise<Rewrite>
 
 // Хранилище состояния Rewrite: подписка для представления, выбор пары и повтор.
 // React-хук useRewrite (App.tsx) — тонкая обвязка над ним; вся логика здесь.
 export type RewriteStore = {
   getState: () => RewriteState
   subscribe: (listener: () => void) => () => void
-  select: (link: string, mood: string) => void
+  select: (link: string, mood: Mood) => void
   retry: () => void
 }
 
@@ -44,7 +44,7 @@ export function createRewriteStore(
   // ответ), отбрасывается — на экран он не попадает, и Rewrite предыдущего
   // регистра не мелькает.
   let token = 0
-  let last: { link: string; mood: string } | null = null
+  let last: { link: string; mood: Mood } | null = null
 
   // Уже полученные Rewrite по паре «Article + Mood». Хранилище поднято в корень
   // (issue #32) и переживает возврат в выпуск, поэтому повторный выбор ранее
@@ -52,14 +52,14 @@ export function createRewriteStore(
   // успешный ответ примененной пары: ошибка и устаревший ответ сюда не попадают,
   // а retry обходит кэш и всегда перезапрашивает.
   const cache = new Map<string, Rewrite>()
-  const keyOf = (link: string, mood: string) => `${link}\n${mood}`
+  const keyOf = (link: string, mood: Mood) => `${link}\n${mood}`
 
   function set(next: RewriteState) {
     state = next
     for (const listener of listeners) listener()
   }
 
-  function request(link: string, mood: string, fresh: boolean) {
+  function request(link: string, mood: Mood, fresh: boolean) {
     last = { link, mood }
     const mine = ++token
     if (!fresh) {

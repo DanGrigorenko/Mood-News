@@ -2,7 +2,8 @@
 // (адресный контейнер конкретной вёрстки) живёт рядом с url ленты в module
 // Source; здесь — только применение правила к сохранённому HTML.
 
-import { SOURCES, isSource } from './source.ts'
+import { SOURCES } from './source.ts'
+import type { Source } from '../../shared/api.mts'
 
 // Полный текст короче этого — не статья, а обрывок или пустой контейнер: сюда
 // же попадает антибот-заглушка, если её вёрстка случайно задела наш селектор.
@@ -18,9 +19,7 @@ function stripHtml(value: string): string {
 // Полный текст статьи по разметке источника — или null, если тела нет либо оно
 // подозрительно короткое. Чистая функция: сеть снаружи (ingest), здесь только
 // разбор сохранённого HTML — тестируется без сети (issue #11).
-export function extractArticleText(html: string, source: string): string | null {
-  // Не наш Source (чужая лента, опечатка вне набора) — извлекать нечего.
-  if (!isSource(source)) return null
+export function extractArticleText(html: string, source: Source): string | null {
   const { rule } = SOURCES[source]
 
   let scope = html

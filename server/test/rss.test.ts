@@ -22,12 +22,12 @@ const sampleFeed = `<?xml version="1.0" encoding="UTF-8"?>
 </rss>`
 
 test('parseFeed достаёт Article со Snippet из RSS-ленты', () => {
-  const articles = parseFeed(sampleFeed, 'Пример')
+  const articles = parseFeed(sampleFeed, 'Интерфакс')
 
   assert.equal(articles.length, 2)
   assert.deepEqual(articles[0], {
     link: 'https://example.com/news/1',
-    source: 'Пример',
+    source: 'Интерфакс',
     title: 'Первая новость',
     announce: 'Анонс первой новости с числом 15%.',
     publishedAt: '2026-08-16T06:00:00.000Z',
@@ -35,7 +35,7 @@ test('parseFeed достаёт Article со Snippet из RSS-ленты', () => 
 })
 
 test('parseFeed снимает HTML-теги, но сохраняет текст анонса как отдал Source', () => {
-  const articles = parseFeed(sampleFeed, 'Пример')
+  const articles = parseFeed(sampleFeed, 'Интерфакс')
   assert.equal(articles[1].announce, 'Просто текст анонса')
   assert.equal(articles[1].title, 'Вторая новость')
 })
@@ -47,12 +47,12 @@ test('parseFeed пропускает item без ссылки или загол�
       <item><link>https://example.com/ok</link><title>Целая</title></item>
     </channel></rss>`
 
-  const articles = parseFeed(broken, 'X')
+  const articles = parseFeed(broken, 'Интерфакс')
   assert.equal(articles.length, 1)
   assert.equal(articles[0].link, 'https://example.com/ok')
 })
 
 test('parseFeed на мусоре вместо XML возвращает пустой список, а не бросает', () => {
-  assert.deepEqual(parseFeed('это не xml', 'X'), [])
-  assert.deepEqual(parseFeed('', 'X'), [])
+  assert.deepEqual(parseFeed('это не xml', 'Интерфакс'), [])
+  assert.deepEqual(parseFeed('', 'Интерфакс'), [])
 })

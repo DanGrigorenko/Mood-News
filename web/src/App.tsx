@@ -5,6 +5,7 @@ import { apiFetch } from './api.ts'
 import {
   moodsResponseSchema,
   type Article,
+  type Mood,
   type MoodOption,
   type Rewrite,
 } from '../../shared/api.mts'
@@ -16,8 +17,9 @@ import { AnchorMark, ArrowBack, ArrowOut, Brace } from './notation.tsx'
 
 // Итальянская ремарка рядом с русским названием Mood — то, чем в партитуре
 // задают характер исполнения. Список Mood по-прежнему приходит с сервера
-// (issue #5); здесь только подпись к уже полученному id.
-const REGISTER_TERM: Record<string, string> = {
+// (issue #5); здесь только подпись к уже полученному id. Ключ — Mood из общего
+// контракта, а не строка: пропущенный или лишний регистр — ошибка компиляции.
+const REGISTER_TERM: Record<Mood, string> = {
   neutral: 'senza espressione',
   joyful: 'giocoso',
   sad: 'mesto',
@@ -47,7 +49,7 @@ function onNavigate(
 // подписка на его состояние: select переспрашивает Rewrite при смене пары.
 // Само хранилище передаётся из корня (issue #32): оно живёт дольше страницы
 // новости, поэтому возврат в выпуск не стирает уже полученные Rewrite.
-function useRewrite(store: RewriteStore, link: string, mood: string) {
+function useRewrite(store: RewriteStore, link: string, mood: Mood) {
   const state = useSyncExternalStore(store.subscribe, store.getState)
   useEffect(() => {
     store.select(link, mood)
@@ -72,8 +74,8 @@ function Retry(props: { onClick: () => void }) {
 // странице новости.
 function Registers(props: {
   moods: MoodOption[]
-  selected: string
-  onSelect: (id: string) => void
+  selected: Mood
+  onSelect: (id: Mood) => void
 }) {
   return (
     <nav className="registers" aria-label="Настроение">
@@ -86,7 +88,7 @@ function Registers(props: {
           onClick={() => props.onSelect(mood.id)}
         >
           <span className="register-name">{mood.label}</span>
-          <span className="register-term">{REGISTER_TERM[mood.id] ?? ''}</span>
+          <span className="register-term">{REGISTER_TERM[mood.id]}</span>
         </button>
       ))}
     </nav>
@@ -126,9 +128,9 @@ function Piece(props: {
   article: Article
   index: number
   moods: MoodOption[]
-  selected: string
+  selected: Mood
   store: RewriteStore
-  onSelect: (id: string) => void
+  onSelect: (id: Mood) => void
   onBack: () => void
 }) {
   const { article } = props
@@ -318,7 +320,7 @@ export function App() {
   const [rewriteStore] = useState(createRewriteStore)
   const [moods, setMoods] = useState<MoodOption[]>([])
   const [moodsError, setMoodsError] = useState<string | null>(null)
-  const [selectedMood, setSelectedMood] = useState('neutral')
+  const [selectedMood, setSelectedMood] = useState<Mood>('neutral')
   const [openLink, go] = useRoute()
 
   // Список Mood — отдельный seam (приходит с сервера, issue #5), не часть выпуска.
@@ -335,7 +337,7 @@ export function App() {
 
   const openIndex = issue.articles.findIndex((a) => a.link === openLink)
   const open = openIndex === -1 ? null : issue.articles[openIndex]
-  const currentTerm = REGISTER_TERM[selectedMood] ?? ''
+  const currentTerm = REGISTER_TERM[selectedMood]
   const error = issue.error ?? moodsError
 
   return (

@@ -5,7 +5,7 @@ import { MOOD_LABELS } from '../src/mood.ts'
 import { generateRewrite } from '../src/rewrite.ts'
 import { unchangedSimilarity } from '../src/similarity.ts'
 import { makeModelCall, makeMeaningCheckCall, httpTransport, hasApiKey, type Transport } from '../src/llm.ts'
-import { MOOD_IDS, type Article, type Rewrite } from '../../shared/api.mts'
+import { MOOD_IDS, sourceSchema, type Article, type Rewrite } from '../../shared/api.mts'
 import { summarize, formatSummary } from './aggregate.ts'
 
 // Раннер eval (issue #12): гоняет замороженный корпус из 10 Snippet во всех пяти
@@ -20,7 +20,7 @@ const corpusEntrySchema = z.object({
   id: z.string(),
   category: z.string(),
   link: z.string(),
-  source: z.string(),
+  source: sourceSchema,
   title: z.string(),
   announce: z.string(),
   publishedAt: z.string(),

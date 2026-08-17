@@ -26,6 +26,15 @@ export function openDb(path: string): DatabaseSync {
   // чтении, а не проявляется на экране. Отдельными колонками остаётся только
   // ключ пары — то, по чему реально ищут (issue #23). Добавление поля в Rewrite —
   // правка одной схемы, а не согласованные правки в раскладке по колонкам.
+  // Форма записи Rewrite сменилась (issue #23: раскладка по колонкам → одна
+  // data), а миграций в проекте нет. База, созданную прежней формой, CREATE TABLE
+  // IF NOT EXISTS пропускает молча — и первый же SELECT data бросает, отдавая 502
+  // на каждой новости. Поэтому таблица чужой формы сносится: кэш ленивый и
+  // отстроится сам. Вечна запись пары (link, mood), а не файл (docs/adr/0001).
+  const columns = db.prepare(`PRAGMA table_info(rewrites)`).all() as { name: string }[]
+  if (columns.length > 0 && !columns.some((c) => c.name === 'data')) {
+    db.exec(`DROP TABLE rewrites`)
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS rewrites (
       link TEXT NOT NULL,
@@ -60,6 +69,11 @@ export function countArticles(db: DatabaseSync): number {
 // Article без анонса не отдаём: новые Ingest их и не сохраняют (issue #7), но
 // в базе могли осесть записи, забранные до фильтра. Отсекаем их и на чтении,
 // чтобы у каждой карточки был непустой текст под заголовком.
+//
+// safeParse, а не parse: source — конечный набор (shared/api.mts), и в базе могли
+// осесть строки ленты, которую с тех пор убрали (ТАСС, Lenta.ru). Такая строка
+// выпадает из выпуска — забрать её заново всё равно нечем, — а не роняет разбор
+// всего списка.
 export function listArticles(db: DatabaseSync): Article[] {
   const rows = db
     .prepare(
@@ -67,11 +81,14 @@ export function listArticles(db: DatabaseSync): Article[] {
        FROM articles WHERE trim(announce) <> '' ORDER BY published_at DESC`,
     )
     .all()
-  return rows.map((row) => articleSchema.parse(row))
+  return rows.flatMap((row) => {
+    const parsed = articleSchema.safeParse(row)
+    return parsed.success ? [parsed.data] : []
+  })
 }
 
-// Одна Article по её ссылке (первичному ключу) — undefined, если такой нет или
-// у неё пустой анонс (см. listArticles).
+// Одна Article по её ссылке (первичному ключу) — undefined, если такой нет, у неё
+// пустой анонс или её лента вышла из набора Source (см. listArticles).
 export function getArticle(db: DatabaseSync, link: string): Article | undefined {
   const row = db
     .prepare(
@@ -79,7 +96,9 @@ export function getArticle(db: DatabaseSync, link: string): Article | undefined 
        FROM articles WHERE link = ? AND trim(announce) <> ''`,
     )
     .get(link)
-  return row ? articleSchema.parse(row) : undefined
+  if (!row) return undefined
+  const parsed = articleSchema.safeParse(row)
+  return parsed.success ? parsed.data : undefined
 }
 
 // Чтение Rewrite из кэша по паре (link, mood). Запись хранится одной JSON-строкой

@@ -3,7 +3,14 @@ import { DatabaseSync } from 'node:sqlite'
 // (shared/api.mts), а не через парсер RSS или module переписывания: слой
 // хранения хранит форму контракта, поэтому и берёт её у источника. Так граф
 // импортов ацикличен — цикла db → rewrite → db больше нет (issue #27).
-import { articleSchema, rewriteSchema, type Article, type Rewrite, type Mood } from '../../shared/api.mts'
+import {
+  articleSchema,
+  rewriteSchema,
+  sourceSchema,
+  type Article,
+  type Rewrite,
+  type Mood,
+} from '../../shared/api.mts'
 
 // SQLite файлом, схема одним CREATE TABLE IF NOT EXISTS при старте — без ORM
 // и без миграций (CODING_STANDARDS). Дедупликация Ingest держится на PRIMARY
@@ -31,6 +38,11 @@ export function openDb(path: string): DatabaseSync {
   // IF NOT EXISTS пропускает молча — и первый же SELECT data бросает, отдавая 502
   // на каждой новости. Поэтому таблица чужой формы сносится: кэш ленивый и
   // отстроится сам. Вечна запись пары (link, mood), а не файл (docs/adr/0001).
+  //
+  // ponytail: форма опознаётся по наличию колонки data. Таблица, где data есть, но
+  // рядом уцелели прежние NOT NULL-колонки, проверку пройдёт и упадёт на INSERT —
+  // такой промежуточной формы в проекте не существовало. Появится третья форма —
+  // сверять полный список колонок, а не одну.
   const columns = db.prepare(`PRAGMA table_info(rewrites)`).all() as { name: string }[]
   if (columns.length > 0 && !columns.some((c) => c.name === 'data')) {
     db.exec(`DROP TABLE rewrites`)
@@ -69,11 +81,6 @@ export function countArticles(db: DatabaseSync): number {
 // Article без анонса не отдаём: новые Ingest их и не сохраняют (issue #7), но
 // в базе могли осесть записи, забранные до фильтра. Отсекаем их и на чтении,
 // чтобы у каждой карточки был непустой текст под заголовком.
-//
-// safeParse, а не parse: source — конечный набор (shared/api.mts), и в базе могли
-// осесть строки ленты, которую с тех пор убрали (ТАСС, Lenta.ru). Такая строка
-// выпадает из выпуска — забрать её заново всё равно нечем, — а не роняет разбор
-// всего списка.
 export function listArticles(db: DatabaseSync): Article[] {
   const rows = db
     .prepare(
@@ -81,10 +88,16 @@ export function listArticles(db: DatabaseSync): Article[] {
        FROM articles WHERE trim(announce) <> '' ORDER BY published_at DESC`,
     )
     .all()
-  return rows.flatMap((row) => {
-    const parsed = articleSchema.safeParse(row)
-    return parsed.success ? [parsed.data] : []
-  })
+  return rows.flatMap((row) => (isKnownSource(row) ? [articleSchema.parse(row)] : []))
+}
+
+// Единственная ожидаемая причина отброса на чтении: лента, которую с тех пор
+// убрали из набора Source (ТАСС, Lenta.ru). Забрать такую Article заново нечем,
+// поэтому она молча выпадает из выпуска. Всё остальное разбирается строгим parse
+// и падает громко: погасшая лента должна быть видна (issue #30), а не оставлять
+// пустой выпуск без следа.
+function isKnownSource(row: unknown): boolean {
+  return sourceSchema.safeParse((row as { source?: unknown }).source).success
 }
 
 // Одна Article по её ссылке (первичному ключу) — undefined, если такой нет, у неё
@@ -96,9 +109,8 @@ export function getArticle(db: DatabaseSync, link: string): Article | undefined 
        FROM articles WHERE link = ? AND trim(announce) <> ''`,
     )
     .get(link)
-  if (!row) return undefined
-  const parsed = articleSchema.safeParse(row)
-  return parsed.success ? parsed.data : undefined
+  if (!row || !isKnownSource(row)) return undefined
+  return articleSchema.parse(row)
 }
 
 // Чтение Rewrite из кэша по паре (link, mood). Запись хранится одной JSON-строкой

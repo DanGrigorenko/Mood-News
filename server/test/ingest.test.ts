@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Rewrite } from '../../shared/api.mts'
@@ -280,7 +280,8 @@ test('уже сохранённая Article с пустым анонсом не 
 // созданная прежней формой, должна открыться и работать, а не ронять чтение
 // кэша на каждой новости.
 test('база прежней формы rewrites открывается и снова кэширует Rewrite', () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'moodnews-')), 'old.db')
+  const dir = mkdtempSync(join(tmpdir(), 'moodnews-'))
+  const path = join(dir, 'old.db')
   const old = new DatabaseSync(path)
   old.exec(`CREATE TABLE rewrites (
     link TEXT NOT NULL, mood TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
@@ -290,13 +291,18 @@ test('база прежней формы rewrites открывается и сн
   old.close()
 
   const db = openDb(path)
-  assert.equal(getRewrite(db, 'https://k.test/1', 'joyful'), undefined)
+  try {
+    assert.equal(getRewrite(db, 'https://k.test/1', 'joyful'), undefined)
 
-  const rewrite: Rewrite = {
-    mood: 'joyful', title: 'Новый', body: 'Текст', anchors: [], anchorCount: 0,
-    missing: [], attempts: 1, stub: false, unchanged: false,
-    meaningCheck: 'passed', distortion: '',
+    const rewrite: Rewrite = {
+      mood: 'joyful', title: 'Новый', body: 'Текст', anchors: [], anchorCount: 0,
+      missing: [], attempts: 1, stub: false, unchanged: false,
+      meaningCheck: 'passed', distortion: '',
+    }
+    insertRewrite(db, 'https://k.test/1', 'joyful', rewrite)
+    assert.deepEqual(getRewrite(db, 'https://k.test/1', 'joyful'), rewrite)
+  } finally {
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
-  insertRewrite(db, 'https://k.test/1', 'joyful', rewrite)
-  assert.deepEqual(getRewrite(db, 'https://k.test/1', 'joyful'), rewrite)
 })
